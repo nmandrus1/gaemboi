@@ -1,11 +1,11 @@
 use super::traits::{Readable, Writable};
 
-pub trait Register {
+pub trait Register: Writable {
     type Size;
 }
 
 /// Tuple Struct of two 8 bit registers
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Reg16(pub u8, pub u8);
 
 impl From<u16> for Reg16 {

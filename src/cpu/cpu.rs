@@ -1,5 +1,4 @@
 use super::*;
-
 /// Nice macros for convience
 
 #[macro_export]
@@ -166,52 +165,22 @@ impl Cpu {
         todo!()
     }
 
-    /// returns a 16 bit number from the b and c registers
-    fn bc(&self) -> u16 {
-        self.bc.into()
-    }
-
-    /// returns a 16 bit number from the d and e registers
-    fn de(&self) -> u16 {
-        self.de.into()
-    }
-
-    /// returns a 16 bit number from the h and l registers
-    fn hl(&self) -> u16 {
-        self.hl.into()
-    }
-
     /// Load Function "Entry Point", this determines which loading pattern needs to be executed
     // Ideally, we wouldn't have such separation of logic, but I think we can either fix this in the future
     // or come to realize that it isn't too bad considering there are like a billion load operations
-    fn load8(&mut self, _src: LoadOperand<Register8>, _dest: LoadOperand<Register8>) {
-        todo!()
-        //  match (src, dest) {
-        //      (LoadOperand::Reg(src), LoadOperand::Reg(dest)) => {}
-        //      (LoadOperand::Reg(src), LoadOperand::Mem(dest)) => {}
-        //      (LoadOperand::Mem(src), LoadOperand::Mem(dest)) => {}
-        //      (LoadOperand::Mem(src), LoadOperand::Reg(dest)) => {}
-        //      (LoadOperand::Im8(data), LoadOperand::Reg(dest) => {}
-        // }
+    fn load8(&mut self, dest: LoadOperand<Register8>, src: LoadOperand<Register8>) {
+        match (dest, src) {
+            (LoadOperand::Reg(dest), LoadOperand::Reg(src)) => self.write(dest, src),
+            (LoadOperand::Reg(dest), LoadOperand::Mem(src)) => self.write(dest, src),
+            (LoadOperand::Reg(dest), LoadOperand::Im(data)) => self.write(dest, data),
+            (LoadOperand::Mem(dest), LoadOperand::Reg(src)) => {
+                // read the data in the src register and write it to memory
+                self.write(dest, read_byte!(self, src))
+            }
+            (LoadOperand::Mem(dest), LoadOperand::Im(data)) => self.write(dest, data),
+            _ => panic!("Failed to match LoadOperand pair... whoops"),
+        }
     }
-
-    // /// Load data from one register to another
-    // fn load_r_r(&mut self, src: Register, dest: Register) {}
-
-    // /// Load data from one register to memory
-    // fn load_r_m(&mut self, src: Register, dest: Address) {
-    //     todo!()
-    // }
-
-    // /// Load data from memory to another memory location
-    // fn load_m_m(&mut self, src: Address, dest: Address) {
-    //     todo!()
-    // }
-
-    // /// Load data from memory to a register
-    // fn load_m_r(&mut self, src: Address, dest: Register) {
-    //     todo!()
-    // }
 }
 
 impl TargetedWrite<Register8, u8> for Cpu {
@@ -228,12 +197,45 @@ impl TargetedWrite<Register8, u8> for Cpu {
     }
 }
 
+impl TargetedWrite<Register8, Register8> for Cpu {
+    // copy one register to another
+    fn write(&mut self, target: Register8, value: Register8) {
+        match value {
+            Register8::A => self.write(target, self.af.0),
+            Register8::B => self.write(target, self.bc.0),
+            Register8::C => self.write(target, self.bc.1),
+            Register8::D => self.write(target, self.de.0),
+            Register8::E => self.write(target, self.de.1),
+            Register8::H => self.write(target, self.hl.0),
+            Register8::L => self.write(target, self.hl.1),
+        }
+    }
+}
+
+impl TargetedWrite<Register8, Address> for Cpu {
+    fn write(&mut self, target: Register8, value: Address) {
+        let data = read_byte!(self, value);
+        self.write(target, data);
+    }
+}
+
 impl TargetedWrite<Register16, u16> for Cpu {
     fn write(&mut self, target: Register16, value: u16) {
         match target {
             Register16::HL => self.hl = value.into(),
             Register16::BC => self.bc = value.into(),
             Register16::DE => self.de = value.into(),
+        }
+    }
+}
+
+impl TargetedWrite<Register16, Register16> for Cpu {
+    // copy one register to another
+    fn write(&mut self, target: Register16, value: Register16) {
+        match value {
+            Register16::BC => self.write(target, Into::<u16>::into(self.bc)),
+            Register16::DE => self.write(target, Into::<u16>::into(self.de)),
+            Register16::HL => self.write(target, Into::<u16>::into(self.hl)),
         }
     }
 }
@@ -433,5 +435,47 @@ mod test {
         let mut buf: [u8; 2] = [0; 2];
         cpu.read(Address(0x100), buf.as_mut_slice());
         assert_eq!(buf, [0xAA, 0xBB]);
+    }
+
+    #[test]
+    fn test_write_register8_to_register8() {
+        let mut cpu = Cpu::default();
+        cpu.af = 0xAA00.into(); // Initialize A with 0xAA
+        cpu.bc = 0xBBCC.into(); // Initialize B with 0xBB and C with 0xCC
+        cpu.de = 0xDDEE.into(); // Initialize D with 0xDD and E with 0xEE
+        cpu.hl = 0x1122.into(); // Initialize H with 0x11 and L with 0x22
+
+        // Test copying from Register A to Register B
+        cpu.write(Register8::B, Register8::A);
+        assert_eq!(cpu.bc.0, cpu.af.0, "Failed to copy from A to B");
+
+        // Test copying from Register C to Register D
+        cpu.write(Register8::D, Register8::C);
+        assert_eq!(cpu.de.0, cpu.bc.1, "Failed to copy from C to D");
+    }
+
+    #[test]
+    fn test_write_register8_from_address() {
+        let mut cpu = Cpu::default();
+        cpu.mem[0x100] = 0x69;
+        cpu.write(Register8::B, Address(0x100));
+        assert_eq!(read_byte!(cpu, Register8::B), 0x69);
+    }
+
+    #[test]
+    fn test_write_register16_to_register16() {
+        let mut cpu = Cpu::default();
+        cpu.af = 0xAA00.into(); // Initialize A with 0xAA
+        cpu.bc = 0xBBCC.into(); // Initialize B with 0xBB and C with 0xCC
+        cpu.de = 0xDDEE.into(); // Initialize D with 0xDD and E with 0xEE
+        cpu.hl = 0x1122.into(); // Initialize H with 0x11 and L with 0x22
+
+        // Test copying from Register A to Register B
+        cpu.write(Register16::BC, Register16::DE);
+        assert_eq!(cpu.bc, cpu.de, "Failed to copy from A to B");
+
+        // Test copying from Register C to Register D
+        cpu.write(Register16::DE, Register16::HL);
+        assert_eq!(cpu.de, cpu.hl, "Failed to copy from C to D");
     }
 }
