@@ -1,4 +1,4 @@
-use super::cpu::Writable;
+use super::traits::{Readable, Writable};
 
 pub trait Register {
     type Size;
@@ -13,7 +13,7 @@ impl From<u16> for Reg16 {
         // Little endian is sus af
         // I NEVER know whether the byte order is right
         let bytes = value.to_le_bytes();
-        Self(bytes[1], bytes[0])
+        Self(bytes[0], bytes[1])
     }
 }
 
@@ -23,11 +23,8 @@ impl From<Reg16> for u16 {
     }
 }
 
-impl Writable<u16> for Reg16 {
-    fn write(&mut self, value: u16) {
-        *self = Reg16::from(value);
-    }
-}
+impl Writable for Reg16 {}
+impl Readable for Reg16 {}
 
 /// All the different registers that can be used by any instructions
 // The contained data is a palceholder at the moment for the reg_write() function
@@ -58,6 +55,11 @@ pub enum Register16 {
 impl Register for Register16 {
     type Size = u16;
 }
+
+impl Writable for Register8 {}
+impl Readable for Register8 {}
+impl Writable for Register16 {}
+impl Readable for Register16 {}
 
 // /// maps the value of a 3 bit number to a register
 // /// This *SHOULD* be consistent accross all opcodes

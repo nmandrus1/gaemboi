@@ -1,31 +1,14 @@
 use super::*;
 
 /// Nice macros for convience
+
 #[macro_export]
-macro_rules! nop {
-    () => {
-        Instruction {
-            op: InstructionType::NOP,
-            cycles: 1,
-        }
-    };
-}
-
-// TRAITS!!!!!!!!!!!!!!! We love traits
-
-/// for the CPU to accept a Target and a Value
-trait TargetedWrite<T, V> {
-    fn write(&mut self, target: T, value: V);
-}
-
-pub trait Writable<T> {
-    fn write(&mut self, value: T);
-}
-
-impl Writable<u8> for u8 {
-    fn write(&mut self, value: u8) {
-        *self = value;
-    }
+macro_rules! read_byte {
+    ($cpu:expr, $target:expr) => {{
+        let mut buf = 0;
+        $cpu.read($target, &mut buf);
+        buf
+    }};
 }
 
 /// Address type
@@ -38,29 +21,8 @@ impl Writable<u8> for u8 {
 // 3) Flexibilty: We can define methods on this type and even change its
 //     representation and behavior if we need to in the future
 pub struct Address(u16);
-
-enum InstructionType {
-    Load8 {
-        src: LoadOperand<Register8>,
-        dest: LoadOperand<Register8>,
-
-        // Some Load Instructions will do more than just load, they will
-        // decrement the value located at the previously written to address,
-        // in cases like these we can represent that as an Optional followup
-        // function to be run after the Operation
-        followup: Option<fn(Address)>,
-    },
-
-    Load16,
-    Arith8,
-    Arith16,
-    NOP,
-}
-
-struct Instruction {
-    op: InstructionType,
-    cycles: u8,
-}
+impl Writable for Address {}
+impl Readable for Address {}
 
 /// struct to represent the CPU of a Gameboy
 pub struct CPU {
@@ -110,16 +72,11 @@ impl Default for CPU {
 }
 
 impl CPU {
-    /// read a byte from memory from the passed adress
-    fn read(&self, addr: Address) -> u8 {
-        todo!()
-    }
-
     /// Modular Decoder function, first we determine what kind of instruction
     /// and then we pass the opcode to a more specific decoder that generates the
     /// instruction
-    fn decode(&mut self) -> Instruction {
-        let opcode = self.read(Address(self.pc));
+    fn decode(&mut self) {
+        let opcode = read_byte!(self, Address(self.pc));
         self.pc += 1;
 
         match opcode {
@@ -141,13 +98,13 @@ impl CPU {
             | 0x0E
             | 0x1E
             | 0x2E
-            | 0x3E => self.decode_load8(opcode),
-            _ => nop!(),
+            | 0x3E => self.decode_load8::<Register8>(opcode),
+            _ => unimplemented!(),
         }
     }
 
     /// 8 Bit Load instruction decoder
-    fn decode_load8(&self, opcode: u8) -> Instruction {
+    fn decode_load8<R: Register>(&self, opcode: u8) {
         // // isolate important opcode patterns
         // let high_bits = opcode & 0xC0; // 0xC0 = 0b11000000
         // let mid_bits = opcode & 0x38; // 0x38 = 0b00111000
@@ -274,10 +231,16 @@ impl TargetedWrite<Register8, u8> for CPU {
 impl TargetedWrite<Register16, u16> for CPU {
     fn write(&mut self, target: Register16, value: u16) {
         match target {
-            Register16::HL => self.hl.write(value),
-            Register16::BC => self.bc.write(value),
-            Register16::DE => self.de.write(value),
+            Register16::HL => self.hl = value.into(),
+            Register16::BC => self.bc = value.into(),
+            Register16::DE => self.de = value.into(),
         }
+    }
+}
+
+impl TargetedWrite<Address, u8> for CPU {
+    fn write(&mut self, target: Address, value: u8) {
+        self.mem[target.0 as usize] = value;
     }
 }
 
@@ -296,20 +259,48 @@ impl TargetedWrite<Address, &[u8]> for CPU {
     }
 }
 
-/// Enum to represent the different possible operands for a Load instruction
-// Things to keep in mind:
-// 1) Errors: Not every combination of registers may be allowed,
-//     maybe creating a special LoadRegister that only contains valid
-//     registers?
-enum LoadOperand<R: Register> {
-    // Read or Write to/from a register
-    Reg(R),
+impl TargetedRead<Register8, &mut u8> for CPU {
+    fn read(&self, target: Register8, buf: &mut u8) {
+        match target {
+            Register8::A => *buf = self.af.0,
+            Register8::B => *buf = self.bc.0,
+            Register8::C => *buf = self.bc.1,
+            Register8::D => *buf = self.de.0,
+            Register8::E => *buf = self.de.1,
+            Register8::H => *buf = self.hl.0,
+            Register8::L => *buf = self.hl.1,
+        }
+    }
+}
 
-    // Read or Write to/from a memory address
-    Mem(Address),
+impl TargetedRead<Register16, &mut u16> for CPU {
+    fn read(&self, target: Register16, buf: &mut u16) {
+        match target {
+            Register16::HL => *buf = self.hl.into(),
+            Register16::BC => *buf = self.bc.into(),
+            Register16::DE => *buf = self.de.into(),
+        }
+    }
+}
 
-    // Immediate Data
-    Im(R::Size),
+impl TargetedRead<Address, &mut u8> for CPU {
+    fn read(&self, target: Address, value: &mut u8) {
+        *value = self.mem[target.0 as usize];
+    }
+}
+
+impl TargetedRead<Address, &mut [u8]> for CPU {
+    fn read(&self, target: Address, buf: &mut [u8]) {
+        let len = buf.len();
+        let start = target.0 as usize;
+        let end = start + len;
+
+        if end <= self.mem.len() {
+            buf.copy_from_slice(&self.mem[start..end]);
+        } else {
+            panic!("Memory Overflow!!!")
+        }
+    }
 }
 
 #[cfg(test)]
@@ -319,6 +310,14 @@ mod test {
 
     #[test]
     fn test_reg_write() {
+        // To whom it may concern...
+        //
+        // if you have a problem with the byte order in these unit tests
+        // seek comfort in the fact that I do as well
+        // figuring out consistency in the byte order throughout the CPU
+        // code has taken me an EMBARASSING amount of time and it's probably
+        // STILL WRONG
+
         let mut cpu = CPU::default();
 
         // Test setting the A register
@@ -343,50 +342,18 @@ mod test {
 
         // Test setting the H and L registers using HL
         cpu.write(Register16::HL, 0x0102);
-        assert_eq!(cpu.hl.0, 0x01, "Failed to set register H");
-        assert_eq!(cpu.hl.1, 0x02, "Failed to set register L");
+        assert_eq!(cpu.hl.0, 0x02, "Failed to set register H");
+        assert_eq!(cpu.hl.1, 0x01, "Failed to set register L");
 
         // Test setting the B and C registers using BC
         cpu.write(Register16::BC, 0xBC0D);
-        assert_eq!(cpu.bc.0, 0xBC, "Failed to set register B in BC");
-        assert_eq!(cpu.bc.1, 0x0D, "Failed to set register C in BC");
+        assert_eq!(cpu.bc.0, 0x0D, "Failed to set register B in BC");
+        assert_eq!(cpu.bc.1, 0xBC, "Failed to set register C in BC");
 
         // Test setting the D and E registers using DE
         cpu.write(Register16::DE, 0xDEAD);
-        assert_eq!(cpu.de.0, 0xDE, "Failed to set register D in DE");
-        assert_eq!(cpu.de.1, 0xAD, "Failed to set register E in DE");
-    }
-
-    #[test]
-    fn test_decode_8bit_load_instructions() {
-        // Example: Testing the decoding of a specific 8-bit load instruction
-        // Load immediate value into B register (opcode 0x06)
-        let mut cpu = CPU::default();
-
-        cpu.mem[0] = 0x06; // Opcode
-        cpu.mem[1] = 0xAB; // Immediate value
-        cpu.pc = 0;
-
-        let instruction = cpu.decode();
-
-        assert_eq!(
-            matches!(
-                instruction.op,
-                InstructionType::Load8 {
-                    src: _,
-                    dest: _,
-                    followup: _
-                }
-            ),
-            true
-        );
-        // Add additional assertions to verify the details of the decoded instruction
-        // ...
-
-        // You should repeat this process for each 8-bit load instruction opcode,
-        // setting up the CPU state and memory as needed for each test case.
-
-        // More tests for other 8-bit load opcodes...
+        assert_eq!(cpu.de.0, 0xAD, "Failed to set register D in DE");
+        assert_eq!(cpu.de.1, 0xDE, "Failed to set register E in DE");
     }
 
     #[test]
@@ -400,7 +367,7 @@ mod test {
         let target_address = Address(0x100); // Example address
 
         // Perform the write operation
-        cpu.write(target_address, &data);
+        cpu.write(target_address, data.as_slice());
 
         // Verify that memory has been updated correctly
         assert_eq!(cpu.mem[0x100], 0xAB);
@@ -410,5 +377,61 @@ mod test {
         // Optionally, you can also check that surrounding memory hasn't been altered
         assert_eq!(cpu.mem[0x0FF], 0x00); // Memory before the target address
         assert_eq!(cpu.mem[0x103], 0x00); // Memory after the written data
+    }
+
+    #[test]
+    fn test_read_register8() {
+        let mut cpu = CPU::default();
+        // first byte is the LOW BYTE
+        cpu.af = 0xABCD.into(); // A = 0xCD, F = 0xAB
+        cpu.bc = 0xCDEF.into();
+        cpu.de = 0xBEEF.into();
+
+        let mut buf = read_byte!(cpu, Register8::A);
+        assert_eq!(buf, 0xCD);
+
+        buf = read_byte!(cpu, Register8::B);
+        assert_eq!(buf, 0xEF);
+
+        buf = read_byte!(cpu, Register8::C);
+        assert_eq!(buf, 0xCD);
+
+        buf = read_byte!(cpu, Register8::D);
+        assert_eq!(buf, 0xEF);
+
+        buf = read_byte!(cpu, Register8::E);
+        assert_eq!(buf, 0xBE);
+    }
+
+    #[test]
+    fn test_read_register16() {
+        let mut cpu = CPU::default();
+        cpu.bc = 0xCDEF.into();
+        cpu.de = 0xBEEF.into();
+        cpu.hl = 0x0102.into();
+
+        let mut buf = 0;
+
+        cpu.read(Register16::BC, &mut buf);
+        assert_eq!(buf, 0xCDEF);
+
+        cpu.read(Register16::DE, &mut buf);
+        assert_eq!(buf, 0xBEEF);
+
+        cpu.read(Register16::HL, &mut buf);
+        assert_eq!(buf, 0x0102);
+    }
+
+    #[test]
+    fn test_read_memory() {
+        let mut cpu = CPU::default();
+
+        // Setup memory with some test data
+        cpu.mem[0x100] = 0xAA;
+        cpu.mem[0x101] = 0xBB;
+
+        let mut buf: [u8; 2] = [0; 2];
+        cpu.read(Address(0x100), buf.as_mut_slice());
+        assert_eq!(buf, [0xAA, 0xBB]);
     }
 }
