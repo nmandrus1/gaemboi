@@ -25,7 +25,7 @@ impl Writable for Address {}
 impl Readable for Address {}
 
 /// struct to represent the CPU of a Gameboy
-pub struct CPU {
+pub struct Cpu {
     /// Accumulator & Flag Register
     // 7  bit  0
     // ---- ----
@@ -57,7 +57,7 @@ pub struct CPU {
     mem: [u8; 0xFFFF],
 }
 
-impl Default for CPU {
+impl Default for Cpu {
     fn default() -> Self {
         Self {
             af: Reg16(0, 0),
@@ -71,7 +71,7 @@ impl Default for CPU {
     }
 }
 
-impl CPU {
+impl Cpu {
     /// Modular Decoder function, first we determine what kind of instruction
     /// and then we pass the opcode to a more specific decoder that generates the
     /// instruction
@@ -104,7 +104,7 @@ impl CPU {
     }
 
     /// 8 Bit Load instruction decoder
-    fn decode_load8<R: Register>(&self, opcode: u8) {
+    fn decode_load8<R: Register>(&self, _opcode: u8) {
         // // isolate important opcode patterns
         // let high_bits = opcode & 0xC0; // 0xC0 = 0b11000000
         // let mid_bits = opcode & 0x38; // 0x38 = 0b00111000
@@ -184,7 +184,7 @@ impl CPU {
     /// Load Function "Entry Point", this determines which loading pattern needs to be executed
     // Ideally, we wouldn't have such separation of logic, but I think we can either fix this in the future
     // or come to realize that it isn't too bad considering there are like a billion load operations
-    fn load8(&mut self, src: LoadOperand<Register8>, dest: LoadOperand<Register8>) {
+    fn load8(&mut self, _src: LoadOperand<Register8>, _dest: LoadOperand<Register8>) {
         todo!()
         //  match (src, dest) {
         //      (LoadOperand::Reg(src), LoadOperand::Reg(dest)) => {}
@@ -214,7 +214,7 @@ impl CPU {
     // }
 }
 
-impl TargetedWrite<Register8, u8> for CPU {
+impl TargetedWrite<Register8, u8> for Cpu {
     fn write(&mut self, target: Register8, value: u8) {
         match target {
             Register8::A => self.af.0 = value,
@@ -228,7 +228,7 @@ impl TargetedWrite<Register8, u8> for CPU {
     }
 }
 
-impl TargetedWrite<Register16, u16> for CPU {
+impl TargetedWrite<Register16, u16> for Cpu {
     fn write(&mut self, target: Register16, value: u16) {
         match target {
             Register16::HL => self.hl = value.into(),
@@ -238,13 +238,13 @@ impl TargetedWrite<Register16, u16> for CPU {
     }
 }
 
-impl TargetedWrite<Address, u8> for CPU {
+impl TargetedWrite<Address, u8> for Cpu {
     fn write(&mut self, target: Address, value: u8) {
         self.mem[target.0 as usize] = value;
     }
 }
 
-impl TargetedWrite<Address, &[u8]> for CPU {
+impl TargetedWrite<Address, &[u8]> for Cpu {
     fn write(&mut self, target: Address, value: &[u8]) {
         let len = value.len();
         let start = target.0 as usize;
@@ -259,7 +259,7 @@ impl TargetedWrite<Address, &[u8]> for CPU {
     }
 }
 
-impl TargetedRead<Register8, &mut u8> for CPU {
+impl TargetedRead<Register8, &mut u8> for Cpu {
     fn read(&self, target: Register8, buf: &mut u8) {
         match target {
             Register8::A => *buf = self.af.0,
@@ -273,7 +273,7 @@ impl TargetedRead<Register8, &mut u8> for CPU {
     }
 }
 
-impl TargetedRead<Register16, &mut u16> for CPU {
+impl TargetedRead<Register16, &mut u16> for Cpu {
     fn read(&self, target: Register16, buf: &mut u16) {
         match target {
             Register16::HL => *buf = self.hl.into(),
@@ -283,13 +283,13 @@ impl TargetedRead<Register16, &mut u16> for CPU {
     }
 }
 
-impl TargetedRead<Address, &mut u8> for CPU {
+impl TargetedRead<Address, &mut u8> for Cpu {
     fn read(&self, target: Address, value: &mut u8) {
         *value = self.mem[target.0 as usize];
     }
 }
 
-impl TargetedRead<Address, &mut [u8]> for CPU {
+impl TargetedRead<Address, &mut [u8]> for Cpu {
     fn read(&self, target: Address, buf: &mut [u8]) {
         let len = buf.len();
         let start = target.0 as usize;
@@ -318,7 +318,7 @@ mod test {
         // code has taken me an EMBARASSING amount of time and it's probably
         // STILL WRONG
 
-        let mut cpu = CPU::default();
+        let mut cpu = Cpu::default();
 
         // Test setting the A register
         cpu.write(Register8::A, 0xAB);
@@ -358,7 +358,7 @@ mod test {
 
     #[test]
     fn test_write_slice_to_memory() {
-        let mut cpu = CPU::default();
+        let mut cpu = Cpu::default();
 
         // Prepare data to write
         let data = [0xAB, 0xCD, 0xEF];
@@ -381,7 +381,7 @@ mod test {
 
     #[test]
     fn test_read_register8() {
-        let mut cpu = CPU::default();
+        let mut cpu = Cpu::default();
         // first byte is the LOW BYTE
         cpu.af = 0xABCD.into(); // A = 0xCD, F = 0xAB
         cpu.bc = 0xCDEF.into();
@@ -405,7 +405,7 @@ mod test {
 
     #[test]
     fn test_read_register16() {
-        let mut cpu = CPU::default();
+        let mut cpu = Cpu::default();
         cpu.bc = 0xCDEF.into();
         cpu.de = 0xBEEF.into();
         cpu.hl = 0x0102.into();
@@ -424,7 +424,7 @@ mod test {
 
     #[test]
     fn test_read_memory() {
-        let mut cpu = CPU::default();
+        let mut cpu = Cpu::default();
 
         // Setup memory with some test data
         cpu.mem[0x100] = 0xAA;

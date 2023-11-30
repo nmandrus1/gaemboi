@@ -13,7 +13,7 @@ pub enum InstructionType<R: Register> {
     },
     Arith8,
     Arith16,
-    NOP,
+    Nop,
 }
 
 pub struct Instruction<R: Register> {
