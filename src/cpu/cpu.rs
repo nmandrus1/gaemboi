@@ -39,18 +39,18 @@ pub struct Cpu {
     // ||+------- Half Carry
     // |+-------- Add/Sub Flag
     // +--------- Zero Flag
-    af: Reg16,
+    af: Register<u16>,
 
     // other registers
-    bc: Reg16,
-    de: Reg16,
-    hl: Reg16,
+    bc: Register<u16>,
+    de: Register<u16>,
+    hl: Register<u16>,
 
     /// Stack Pointer
-    sp: u16,
+    sp: Register<u16>,
 
     /// Program Counter
-    pc: u16,
+    pc: Register<u16>,
 
     /// 64kb of Memory
     mem: [u8; 0xFFFF],
@@ -59,12 +59,12 @@ pub struct Cpu {
 impl Default for Cpu {
     fn default() -> Self {
         Self {
-            af: Reg16(0, 0),
-            bc: Reg16(0, 0),
-            de: Reg16(0, 0),
-            hl: Reg16(0, 0),
-            sp: 0,
-            pc: 0,
+            af: Register::from(0),
+            bc: Register::from(0),
+            de: Register::from(0),
+            hl: Register::from(0),
+            sp: Register::from(0),
+            pc: Register::from(0),
             mem: [0; 0xFFFF],
         }
     }
@@ -103,7 +103,7 @@ impl Cpu {
     }
 
     /// 8 Bit Load instruction decoder
-    fn decode_load8<R: Register>(&self, _opcode: u8) {
+    fn decode_load8<R: RegisteR>(&self, _opcode: u8) {
         // // isolate important opcode patterns
         // let high_bits = opcode & 0xC0; // 0xC0 = 0b11000000
         // let mid_bits = opcode & 0x38; // 0x38 = 0b00111000
@@ -183,60 +183,15 @@ impl Cpu {
     }
 }
 
-impl TargetedWrite<Register8, u8> for Cpu {
-    fn write(&mut self, target: Register8, value: u8) {
-        match target {
-            Register8::A => self.af.0 = value,
-            Register8::B => self.bc.0 = value,
-            Register8::C => self.bc.1 = value,
-            Register8::D => self.de.0 = value,
-            Register8::E => self.de.1 = value,
-            Register8::H => self.hl.0 = value,
-            Register8::L => self.hl.1 = value,
-        }
-    }
-}
+impl<S> TargetedWrite<Register<S>, S> for Cpu
+where
+    S: Copy + Clone + Eq + PartialEq,
+{
+    type Source = S;
+    type Destination = Register<S>;
 
-impl TargetedWrite<Register8, Register8> for Cpu {
-    // copy one register to another
-    fn write(&mut self, target: Register8, value: Register8) {
-        match value {
-            Register8::A => self.write(target, self.af.0),
-            Register8::B => self.write(target, self.bc.0),
-            Register8::C => self.write(target, self.bc.1),
-            Register8::D => self.write(target, self.de.0),
-            Register8::E => self.write(target, self.de.1),
-            Register8::H => self.write(target, self.hl.0),
-            Register8::L => self.write(target, self.hl.1),
-        }
-    }
-}
-
-impl TargetedWrite<Register8, Address> for Cpu {
-    fn write(&mut self, target: Register8, value: Address) {
-        let data = read_byte!(self, value);
-        self.write(target, data);
-    }
-}
-
-impl TargetedWrite<Register16, u16> for Cpu {
-    fn write(&mut self, target: Register16, value: u16) {
-        match target {
-            Register16::HL => self.hl = value.into(),
-            Register16::BC => self.bc = value.into(),
-            Register16::DE => self.de = value.into(),
-        }
-    }
-}
-
-impl TargetedWrite<Register16, Register16> for Cpu {
-    // copy one register to another
-    fn write(&mut self, target: Register16, value: Register16) {
-        match value {
-            Register16::BC => self.write(target, Into::<u16>::into(self.bc)),
-            Register16::DE => self.write(target, Into::<u16>::into(self.de)),
-            Register16::HL => self.write(target, Into::<u16>::into(self.hl)),
-        }
+    fn write(&mut self, target: &mut Register<S>, value: S) -> {
+        target.write(value)
     }
 }
 
@@ -261,27 +216,12 @@ impl TargetedWrite<Address, &[u8]> for Cpu {
     }
 }
 
-impl TargetedRead<Register8, &mut u8> for Cpu {
-    fn read(&self, target: Register8, buf: &mut u8) {
-        match target {
-            Register8::A => *buf = self.af.0,
-            Register8::B => *buf = self.bc.0,
-            Register8::C => *buf = self.bc.1,
-            Register8::D => *buf = self.de.0,
-            Register8::E => *buf = self.de.1,
-            Register8::H => *buf = self.hl.0,
-            Register8::L => *buf = self.hl.1,
-        }
-    }
-}
-
-impl TargetedRead<Register16, &mut u16> for Cpu {
-    fn read(&self, target: Register16, buf: &mut u16) {
-        match target {
-            Register16::HL => *buf = self.hl.into(),
-            Register16::BC => *buf = self.bc.into(),
-            Register16::DE => *buf = self.de.into(),
-        }
+impl<S> TargetedRead<Register<S>, S> for Cpu
+where
+    S: Copy + Clone + Eq + PartialEq,
+{
+    fn read(&self, target: Register<S>, buf: &mut S) {
+        *buf = target.read();
     }
 }
 

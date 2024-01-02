@@ -1,37 +1,49 @@
 use super::traits::{Readable, Writable};
 
-pub trait Register: Writable {
-    type Size;
+/// Generically sized Register with size specified by T
+pub struct Register<S>
+where
+    S: Copy + Clone + Eq + PartialEq,
+{
+    value: S,
 }
 
-/// Tuple Struct of two 8 bit registers
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct Reg16(pub u8, pub u8);
+impl<S> Register<S>
+where
+    S: Copy + Clone + Eq + PartialEq,
+{
+    /// read the value contained in the Register
+    pub fn read(&self) -> S {
+        self.value
+    }
 
-impl From<u16> for Reg16 {
-    fn from(value: u16) -> Self {
-        // Little endian is sus af
-        // I NEVER know whether the byte order is right
-        let bytes = value.to_le_bytes();
-        Self(bytes[0], bytes[1])
+    /// write a value to this register
+    pub fn write(&mut self, src: S) {
+        self.value = src;
     }
 }
 
-impl From<Reg16> for u16 {
-    fn from(value: Reg16) -> Self {
-        u16::from_le_bytes([value.0, value.1])
+impl<S> From<S> for Register<S> {
+    fn from(value: S) -> Self {
+        Self { value }
     }
 }
 
-impl Writable for Reg16 {}
-impl Readable for Reg16 {}
+impl Register<u16> {
+    /// split the 16 bit register into two bytes
+    pub fn split(&self) -> (u8, u8) {
+        let high = (self.value >> 8) as u8;
+        let low = self.value as u8;
+        (high, low)
+    }
 
-/// All the different registers that can be used by any instructions
-// The contained data is a palceholder at the moment for the reg_write() function
-// My plan was to reuse as much code as possible, and writing to a register is very
-// common, so when you call reg_write() you pass in this enum and wrap it around
-// the value you want to write to the register like: reg_write(Register::B(69))
-// this approach garuantees type saftey since some registers have different sizes
+    /// write to the 8 highest bits in the 16 bit register
+    pub fn write_high(&mut self, src: u8) {
+        let high: u16 = (src as u16) << 8;
+        self.value = high & (self.value as u8);
+    }
+}
+
 pub enum Register8 {
     B,
     C,
@@ -42,18 +54,10 @@ pub enum Register8 {
     A,
 }
 
-impl Register for Register8 {
-    type Size = u8;
-}
-
 pub enum Register16 {
     HL,
     BC,
     DE,
-}
-
-impl Register for Register16 {
-    type Size = u16;
 }
 
 impl Writable for Register8 {}
@@ -75,3 +79,19 @@ impl Readable for Register16 {}
 //         7 => Register8::A,
 //     }
 // }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_register16_write_high() {
+        let mut reg = Register::from(0u16);
+
+        reg.write_high(1);
+
+        let (hi, lo) = reg.split();
+
+        assert_eq!(hi, 1);
+    }
+}
