@@ -1,6 +1,6 @@
-use super::{Address, RegisteR};
+use super::Address;
 
-pub enum InstructionType<R: RegisteR> {
+pub enum InstructionType<R> {
     Load {
         src: LoadOperand<R>,
         dest: LoadOperand<R>,
@@ -16,7 +16,7 @@ pub enum InstructionType<R: RegisteR> {
     Nop,
 }
 
-pub struct Instruction<R: RegisteR> {
+pub struct Instruction<R> {
     instruction: InstructionType<R>,
     cycles: u8,
 }
@@ -27,7 +27,7 @@ pub struct Instruction<R: RegisteR> {
 //     maybe creating a special LoadRegister that only contains valid
 //     registers?
 
-pub enum LoadOperand<R: RegisteR> {
+pub enum LoadOperand<R> {
     // Read or Write to/from a register
     Reg(R),
 
@@ -35,5 +35,5 @@ pub enum LoadOperand<R: RegisteR> {
     Mem(Address),
 
     // Immediate Data
-    Im(R::Size),
+    Im,
 }

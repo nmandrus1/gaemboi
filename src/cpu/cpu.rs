@@ -1,15 +1,6 @@
 use super::*;
 /// Nice macros for convience
 
-#[macro_export]
-macro_rules! read_byte {
-    ($cpu:expr, $target:expr) => {{
-        let mut buf = 0;
-        $cpu.read($target, &mut buf);
-        buf
-    }};
-}
-
 /// Address type
 // check out the "newtype" pattern in Rust to see more examples
 // Doing this rather than just using a u16 provides a few benefits
@@ -19,53 +10,75 @@ macro_rules! read_byte {
 //     it becomes clear based on the type alone what the variable does
 // 3) Flexibilty: We can define methods on this type and even change its
 //     representation and behavior if we need to in the future
+#[derive(Clone, Copy)]
 pub struct Address(u16);
+
+impl std::fmt::Debug for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Address(0x{:04X})", self.0)
+    }
+}
+
+impl From<Register<u16>> for Address {
+    fn from(value: Register<u16>) -> Self {
+        Self(value.value)
+    }
+}
 
 /// Memory struct
 // the memory is certainly going to be updated and more complex than an array
 // of bytes, so for now we will interact through this struct and change behavior
 // and implemenation later as needed
-#[derive(Default)]
 pub struct Memory([u8; 0xFFFF]);
 
-impl Readable for Memory {
-    type Buffer = [u8];
-    type Source = Address;
-
-    fn read(&self, source: &Self::Source, buf: &mut Self::Buffer) -> Result<(), ReadError> {
-        let len = buf.len();
-        let start = source.0 as usize;
+impl Memory {
+    /// read len bytes from memory starting at the passed address
+    pub fn read(&self, src: Address, len: usize) -> Result<&[u8], ReadError> {
+        let start = src.0 as usize;
         let end = start + len;
 
-        if end <= self.mem.len() {
-            buf.copy_from_slice(&self.mem[start..end]);
-            Ok(())
+        if end <= self.0.len() {
+            Ok(&self.0[start..end])
         } else {
             Err(ReadError::MemoryOverflow)
         }
     }
-}
 
-impl<'a> Writable for Memory {
-    type Source = &'a [u8];
-    type Destination = Address;
+    /// read a single byte from memory at the passed address
+    pub fn read_byte(&self, src: Address) -> Result<u8, ReadError> {
+        self.0
+            .get(src.0 as usize)
+            .ok_or(ReadError::MemoryOverflow)
+            .map(|val| val.clone())
+    }
 
-    fn write(
-        &mut self,
-        destination: &Self::Destination,
-        value: &Self::Source,
-    ) -> Result<(), WriteError> {
+    /// write the contents of the passed buffer into memory starting at the passed address
+    pub fn write(&mut self, dest: Address, value: &[u8]) -> Result<(), WriteError> {
         let len = value.len();
-        let start = destination.0 as usize;
+        let start = dest.0 as usize;
         let end = start + len;
 
-        if end <= self.mem.len() {
-            let mem_slice = &mut self.mem[start..end];
+        if end <= self.0.len() {
+            let mem_slice = &mut self.0[start..end];
             mem_slice.copy_from_slice(value);
             Ok(())
         } else {
             Err(WriteError::MemoryOverflow)
         }
+    }
+
+    /// write the contents of the passed buffer into memory starting at the passed address
+    pub fn write_byte(&mut self, dest: Address, value: u8) -> Result<(), WriteError> {
+        self.0
+            .get_mut(dest.0 as usize)
+            .ok_or(WriteError::MemoryOverflow)
+            .map(|val| *val = value)
+    }
+}
+
+impl Default for Memory {
+    fn default() -> Self {
+        Self([0; 0xFFFF])
     }
 }
 
@@ -120,9 +133,9 @@ impl Cpu {
     /// Modular Decoder function, first we determine what kind of instruction
     /// and then we pass the opcode to a more specific decoder that generates the
     /// instruction
-    fn decode(&mut self) {
-        let opcode = read_byte!(self, Address(self.pc));
-        self.pc += 1;
+    fn decode(&mut self) -> anyhow::Result<()> {
+        let opcode = self.mem.read_byte(Address::from(self.pc))?;
+        self.pc.value += 1;
 
         match opcode {
             // 8 Bit Load
@@ -212,38 +225,6 @@ impl Cpu {
     }
 }
 
-// Readable and Writable traits for Register<T>
-impl<S> Writable for Cpu
-where
-    S: Copy + Clone + Eq + PartialEq,
-{
-    type Source = S;
-    type Destination = Register<S>;
-
-    fn write(
-        &mut self,
-        target: &mut Self::Destination,
-        value: &Self::Source,
-    ) -> Result<(), WriteError> {
-        // simple assignment
-        target.value = value;
-        Ok(())
-    }
-}
-
-impl<S> Readable for Cpu
-where
-    S: Copy + Clone + Eq + PartialEq,
-{
-    type Buffer = S;
-    type Source = Register<S>;
-
-    fn read(&self, source: &Self::Source, buf: &mut Self::Buffer) -> Result<(), ReadError> {
-        *buf = source.value;
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod test {
     // all unit tests belong here
@@ -268,11 +249,11 @@ mod test {
         cpu.af.write_lo(0xCD);
         assert_eq!(cpu.af.lo(), 0xCD, "Failed to set register F");
 
-        cpu.write(&mut cpu.bc.value, 0xBEEF);
+        cpu.bc.write(0xBEEFu16);
     }
 
     #[test]
-    fn test_write_slice_to_memory() {
+    fn test_write_slice_to_memory() -> Result<(), anyhow::Error> {
         let mut cpu = Cpu::default();
 
         // Prepare data to write
@@ -282,16 +263,18 @@ mod test {
         let target_address = Address(0x100); // Example address
 
         // Perform the write operation
-        cpu.mem.write(&target_address, data.as_slice());
+        cpu.mem.write(target_address, data.as_slice())?;
 
         // Verify that memory has been updated correctly
-        assert_eq!(cpu.mem[0x100], 0xAB);
-        assert_eq!(cpu.mem[0x101], 0xCD);
-        assert_eq!(cpu.mem[0x102], 0xEF);
+        assert_eq!(cpu.mem.read_byte(Address(0x100)).unwrap(), 0xAB);
+        assert_eq!(cpu.mem.read_byte(Address(0x101)).unwrap(), 0xCD);
+        assert_eq!(cpu.mem.read_byte(Address(0x102)).unwrap(), 0xEF);
 
         // Optionally, you can also check that surrounding memory hasn't been altered
-        assert_eq!(cpu.mem[0x0FF], 0x00); // Memory before the target address
-        assert_eq!(cpu.mem[0x103], 0x00); // Memory after the written data
+        assert_eq!(cpu.mem.read_byte(Address(0x0FF)).unwrap(), 0x00); // Memory before the target address
+        assert_eq!(cpu.mem.read_byte(Address(0x103)).unwrap(), 0x00); // Memory after the written data
+
+        Ok(())
     }
 
     #[test]
@@ -303,6 +286,7 @@ mod test {
         cpu.de = Register::from(0xBEEF);
 
         let mut buf = cpu.af.hi();
+        println!("hi: 0x{:02X} lo: 0x{:02X}", cpu.af.hi(), cpu.af.lo());
         assert_eq!(buf, 0xCD);
 
         buf = cpu.bc.hi();
@@ -319,35 +303,17 @@ mod test {
     }
 
     #[test]
-    fn test_read_register16() {
-        let mut cpu = Cpu::default();
-        cpu.bc = 0xCDEF.into();
-        cpu.de = 0xBEEF.into();
-        cpu.hl = 0x0102.into();
-
-        let mut buf = 0;
-
-        cpu.read(&cpu.af, &mut buf);
-        assert_eq!(buf, 0xCDEF);
-
-        cpu.read(&cpu.bc, &mut buf);
-        assert_eq!(buf, 0xBEEF);
-
-        cpu.read(&cpu.de, &mut buf);
-        assert_eq!(buf, 0x0102);
-    }
-
-    #[test]
-    fn test_read_memory() {
+    fn test_read_memory() -> anyhow::Result<()> {
         let mut cpu = Cpu::default();
 
         // Setup memory with some test data
-        cpu.mem[0x100] = 0xAA;
-        cpu.mem[0x101] = 0xBB;
+        cpu.mem.write_byte(Address(0x100), 0xAA)?;
+        cpu.mem.write_byte(Address(0x101), 0xBB)?;
 
-        let mut buf: [u8; 2] = [0; 2];
-        cpu.read(Address(0x100), buf.as_mut_slice());
+        let buf = cpu.mem.read(Address(0x100), 2)?;
         assert_eq!(buf, [0xAA, 0xBB]);
+
+        Ok(())
     }
 
     #[test]
@@ -360,22 +326,22 @@ mod test {
 
         // Test copying from Register A to Register B
         cpu.af.write_hi(cpu.bc.hi());
-        assert_eq!(cpu.bc.0, cpu.af.0, "Failed to copy from A to B");
+        assert_eq!(cpu.af.hi(), 0xCC, "Failed to copy from A to B");
 
         // Test copying from Register C to Register D
         cpu.de.write_hi(cpu.bc.lo());
-        assert_eq!(cpu.de.0, cpu.bc.1, "Failed to copy from C to D");
+        assert_eq!(cpu.de.hi(), 0xBB, "Failed to copy from C to D");
     }
 
     #[test]
-    fn test_write_register8_from_address() {
+    fn test_write_register8_from_address() -> Result<(), anyhow::Error> {
         let mut cpu = Cpu::default();
-        cpu.mem[0x100] = 0x69;
+        cpu.mem.write_byte(Address(0x100), 0x69)?;
 
-        cpu.mem.read(&Address(0x100), )
+        cpu.bc.write_hi(cpu.mem.read_byte(Address(0x100))?);
+        assert_eq!(cpu.bc.hi(), 0x69);
 
-        cpu.bc.write_hi(cpu.mem.read Address(0x100));
-        assert_eq!(read_byte!(cpu, Register8::B), 0x69);
+        Ok(())
     }
 
     #[test]
@@ -386,12 +352,12 @@ mod test {
         cpu.de = 0xDDEE.into(); // Initialize D with 0xDD and E with 0xEE
         cpu.hl = 0x1122.into(); // Initialize H with 0x11 and L with 0x22
 
-        // Test copying from Register A to Register B
-        cpu.write(Register16::BC, Register16::DE);
-        assert_eq!(cpu.bc, cpu.de, "Failed to copy from A to B");
+        // Test copying from Register AF to Register BC
+        cpu.bc.write(cpu.af);
+        assert_eq!(cpu.bc.value, 0xAA00, "Failed to copy from AF to BC");
 
         // Test copying from Register C to Register D
-        cpu.write(Register16::DE, Register16::HL);
-        assert_eq!(cpu.de, cpu.hl, "Failed to copy from C to D");
+        cpu.de.write(cpu.hl);
+        assert_eq!(cpu.de.value, 0x1122, "Failed to copy from HL to DE");
     }
 }
