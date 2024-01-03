@@ -1,26 +1,26 @@
-use super::traits::{Readable, Writable};
+/// Register module
+///
+/// My goal for the Registers is to create a system where
+/// All the different register types are able to work together smoothly
+/// and can all operate together. Registers can be transformed, split, joined,
+/// etc and my goal is something like this
+///
+/// cpu.af.split.w
+
+pub trait Register16 {
+    /// write to the 8 highest bits in the 16 bit register
+    fn write_hi(&mut self, src: u8);
+
+    /// write to the 8 lowest bits in the 16 bit register
+    fn write_lo(&mut self, src: u8);
+}
 
 /// Generically sized Register with size specified by T
 pub struct Register<S>
 where
     S: Copy + Clone + Eq + PartialEq,
 {
-    value: S,
-}
-
-impl<S> Register<S>
-where
-    S: Copy + Clone + Eq + PartialEq,
-{
-    /// read the value contained in the Register
-    pub fn read(&self) -> S {
-        self.value
-    }
-
-    /// write a value to this register
-    pub fn write(&mut self, src: S) {
-        self.value = src;
-    }
+    pub value: S,
 }
 
 impl<S> From<S> for Register<S> {
@@ -37,12 +37,62 @@ impl Register<u16> {
         (high, low)
     }
 
+    /// return the highest 8 bits of the register
+    pub fn hi(&self) -> u8 {
+        (self.value >> 8) as u8
+    }
+
     /// write to the 8 highest bits in the 16 bit register
-    pub fn write_high(&mut self, src: u8) {
-        let high: u16 = (src as u16) << 8;
-        self.value = high & (self.value as u8);
+    pub fn write_hi(&mut self, src: u8) {
+        self.value = (self.value & 0x00FF) | ((src as u16) << 8)
+    }
+
+    /// return the lowest 8 bits of the register
+    pub fn lo(&self) -> u8 {
+        self.value as u8
+    }
+
+    /// write to the 8 lowest bits in the 16 bit register
+    pub fn write_lo(&mut self, src: u8) {
+        self.value = (self.value & 0xFF00) | src;
     }
 }
+
+// impl From<Register<(u8, u8)>> for Register<u16> {
+//     fn from(value: Register<(u8, u8)>) -> Self {
+//         Register::from(((value.0 as u16) << 8) | value.1)
+//     }
+// }
+
+// impl Register16 for Register<u16> {
+/// write to the 8 highest bits in the 16 bit register
+//     fn write_hi(&mut self, src: u8) {
+//         self.value = (self.value & 0x00FF) | ((src as u16) << 8)
+//     }
+
+//     /// write to the 8 lowest bits in the 16 bit register
+//     fn write_lo(&mut self, src: u8) {
+//         self.value = (self.value & 0xFF00) | src;
+//     }
+// }
+
+/// 16-bit Register as two bytes
+// impl Register<(u8, u8)> {
+//     /// join the two bytes into a single u16 Register
+//     pub fn join(self) -> Register<u16> {
+//         Register::from(self)
+//     }
+// }
+
+// impl Register16 for Register<(u8, u8)> {
+//     fn write_hi(&mut self, src: u8) {
+//         self.value.0 = src;
+//     }
+
+//     fn write_lo(&mut self, src: u8) {
+//         self.value.1 = src;
+//     }
+// }
 
 pub enum Register8 {
     B,
@@ -54,16 +104,11 @@ pub enum Register8 {
     A,
 }
 
-pub enum Register16 {
+pub enum RegisteR16 {
     HL,
     BC,
     DE,
 }
-
-impl Writable for Register8 {}
-impl Readable for Register8 {}
-impl Writable for Register16 {}
-impl Readable for Register16 {}
 
 // /// maps the value of a 3 bit number to a register
 // /// This *SHOULD* be consistent accross all opcodes
@@ -82,16 +127,29 @@ impl Readable for Register16 {}
 
 #[cfg(test)]
 mod test {
+    use crate::cpu::Cpu;
+
     use super::*;
 
     #[test]
     fn test_register16_write_high() {
-        let mut reg = Register::from(0u16);
-
-        reg.write_high(1);
+        let mut reg = Register::from(0);
+        reg.write_hi(1);
 
         let (hi, lo) = reg.split();
 
         assert_eq!(hi, 1);
+        assert_eq!(reg.hi(), 1);
+    }
+
+    #[test]
+    fn test_register16_write_low() {
+        let mut reg = Register::from(0);
+        reg.write_lo(1);
+
+        let (hi, lo) = reg.split();
+
+        assert_eq!(lo, 1);
+        assert_eq!(reg.lo(), 1);
     }
 }

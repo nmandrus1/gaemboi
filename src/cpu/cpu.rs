@@ -20,8 +20,54 @@ macro_rules! read_byte {
 // 3) Flexibilty: We can define methods on this type and even change its
 //     representation and behavior if we need to in the future
 pub struct Address(u16);
-impl Writable for Address {}
-impl Readable for Address {}
+
+/// Memory struct
+// the memory is certainly going to be updated and more complex than an array
+// of bytes, so for now we will interact through this struct and change behavior
+// and implemenation later as needed
+#[derive(Default)]
+pub struct Memory([u8; 0xFFFF]);
+
+impl Readable for Memory {
+    type Buffer = [u8];
+    type Source = Address;
+
+    fn read(&self, source: &Self::Source, buf: &mut Self::Buffer) -> Result<(), ReadError> {
+        let len = buf.len();
+        let start = source.0 as usize;
+        let end = start + len;
+
+        if end <= self.mem.len() {
+            buf.copy_from_slice(&self.mem[start..end]);
+            Ok(())
+        } else {
+            Err(ReadError::MemoryOverflow)
+        }
+    }
+}
+
+impl<'a> Writable for Memory {
+    type Source = &'a [u8];
+    type Destination = Address;
+
+    fn write(
+        &mut self,
+        destination: &Self::Destination,
+        value: &Self::Source,
+    ) -> Result<(), WriteError> {
+        let len = value.len();
+        let start = destination.0 as usize;
+        let end = start + len;
+
+        if end <= self.mem.len() {
+            let mem_slice = &mut self.mem[start..end];
+            mem_slice.copy_from_slice(value);
+            Ok(())
+        } else {
+            Err(WriteError::MemoryOverflow)
+        }
+    }
+}
 
 /// struct to represent the CPU of a Gameboy
 pub struct Cpu {
@@ -53,7 +99,7 @@ pub struct Cpu {
     pc: Register<u16>,
 
     /// 64kb of Memory
-    mem: [u8; 0xFFFF],
+    mem: Memory,
 }
 
 impl Default for Cpu {
@@ -65,7 +111,7 @@ impl Default for Cpu {
             hl: Register::from(0),
             sp: Register::from(0),
             pc: Register::from(0),
-            mem: [0; 0xFFFF],
+            mem: Memory::default(),
         }
     }
 }
@@ -97,151 +143,104 @@ impl Cpu {
             | 0x0E
             | 0x1E
             | 0x2E
-            | 0x3E => self.decode_load8::<Register8>(opcode),
+            | 0x3E => todo!(), // some decode function,
             _ => unimplemented!(),
         }
     }
 
     /// 8 Bit Load instruction decoder
-    fn decode_load8<R: RegisteR>(&self, _opcode: u8) {
-        // // isolate important opcode patterns
-        // let high_bits = opcode & 0xC0; // 0xC0 = 0b11000000
-        // let mid_bits = opcode & 0x38; // 0x38 = 0b00111000
-        // let last_bits = opcode & 0x07; // 0x07 = 0b00000111
+    // fn decode_load8<R: RegisteR>(&self, _opcode: u8) {
+    // // isolate important opcode patterns
+    // let high_bits = opcode & 0xC0; // 0xC0 = 0b11000000
+    // let mid_bits = opcode & 0x38; // 0x38 = 0b00111000
+    // let last_bits = opcode & 0x07; // 0x07 = 0b00000111
 
-        // match (high_bits, mid_bits, last_bits) {
-        //     // 0b01xxx110
-        //     (0x40, _, 0x06) => {
-        //         // LD r, (HL)
-        //     }
+    // match (high_bits, mid_bits, last_bits) {
+    //     // 0b01xxx110
+    //     (0x40, _, 0x06) => {
+    //         // LD r, (HL)
+    //     }
 
-        //     // 0b00xxx110
-        //     (0x00, _, 0x06) => {
-        //         // LD, r, d8
-        //     }
-        // }
+    //     // 0b00xxx110
+    //     (0x00, _, 0x06) => {
+    //         // LD, r, d8
+    //     }
+    // }
 
-        // // start with loading between registers
-        // if opcode >> 6 == 1 {
-        //     // LD r, r
-        //     // opcode = 0b01xxxyyy -> xxx = dest; yyy = src
-        //     let src = from_bit_triple(opcode & 0b00000111);
-        //     let dest = from_bit_triple((opcode >> 3) & 0b00000111);
+    // // start with loading between registers
+    // if opcode >> 6 == 1 {
+    //     // LD r, r
+    //     // opcode = 0b01xxxyyy -> xxx = dest; yyy = src
+    //     let src = from_bit_triple(opcode & 0b00000111);
+    //     let dest = from_bit_triple((opcode >> 3) & 0b00000111);
 
-        //     Instruction {
-        //         op: InstructionType::Load8 {
-        //             src: LoadOperand<Register8>::Reg(src),
-        //             dest: LoadOperand<Register8>::Reg(dest),
-        //             followup: None,
-        //         },
-        //         cycles: 1,
-        //     }
-        // } else if opcode & 0b00000110 == 0b00000110 {
-        //     // LD r, d8
-        //     // opcode = 0b00xxx110 -> xxx = dest
+    //     Instruction {
+    //         op: InstructionType::Load8 {
+    //             src: LoadOperand<Register8>::Reg(src),
+    //             dest: LoadOperand<Register8>::Reg(dest),
+    //             followup: None,
+    //         },
+    //         cycles: 1,
+    //     }
+    // } else if opcode & 0b00000110 == 0b00000110 {
+    //     // LD r, d8
+    //     // opcode = 0b00xxx110 -> xxx = dest
 
-        //     // read immediate data and increment program counter
-        //     let immediate = self.read(Address(self.pc));
-        //     self.pc += 1;
+    //     // read immediate data and increment program counter
+    //     let immediate = self.read(Address(self.pc));
+    //     self.pc += 1;
 
-        //     let dest = from_bit_triple((opcode >> 3) & 0b00000111);
+    //     let dest = from_bit_triple((opcode >> 3) & 0b00000111);
 
-        //     Instruction {
-        //         op: InstructionType::Load8 {
-        //             src: LoadOperand<Register8>::Im8(immediate),
-        //             dest: LoadOperand<Register8>::Reg(dest),
-        //             followup: None,
-        //         },
-        //         cycles: 2,
-        //     }
-        // } else {
-        todo!()
-        // }
-    }
+    //     Instruction {
+    //         op: InstructionType::Load8 {
+    //             src: LoadOperand<Register8>::Im8(immediate),
+    //             dest: LoadOperand<Register8>::Reg(dest),
+    //             followup: None,
+    //         },
+    //         cycles: 2,
+    //     }
+    // } else {
+    // todo!()
+    // }
+    // }
 
     /// Move 1 step forward in execution
     // Read, Fetch, Execute
     fn step(&mut self) {
         todo!()
     }
-
-    /// Load Function "Entry Point", this determines which loading pattern needs to be executed
-    // Ideally, we wouldn't have such separation of logic, but I think we can either fix this in the future
-    // or come to realize that it isn't too bad considering there are like a billion load operations
-    fn load8(&mut self, dest: LoadOperand<Register8>, src: LoadOperand<Register8>) {
-        match (dest, src) {
-            (LoadOperand::Reg(dest), LoadOperand::Reg(src)) => self.write(dest, src),
-            (LoadOperand::Reg(dest), LoadOperand::Mem(src)) => self.write(dest, src),
-            (LoadOperand::Reg(dest), LoadOperand::Im(data)) => self.write(dest, data),
-            (LoadOperand::Mem(dest), LoadOperand::Reg(src)) => {
-                // read the data in the src register and write it to memory
-                self.write(dest, read_byte!(self, src))
-            }
-            (LoadOperand::Mem(dest), LoadOperand::Im(data)) => self.write(dest, data),
-            _ => panic!("Failed to match LoadOperand pair... whoops"),
-        }
-    }
 }
 
-impl<S> TargetedWrite<Register<S>, S> for Cpu
+// Readable and Writable traits for Register<T>
+impl<S> Writable for Cpu
 where
     S: Copy + Clone + Eq + PartialEq,
 {
     type Source = S;
     type Destination = Register<S>;
 
-    fn write(&mut self, target: &mut Register<S>, value: S) -> {
-        target.write(value)
+    fn write(
+        &mut self,
+        target: &mut Self::Destination,
+        value: &Self::Source,
+    ) -> Result<(), WriteError> {
+        // simple assignment
+        target.value = value;
+        Ok(())
     }
 }
 
-impl TargetedWrite<Address, u8> for Cpu {
-    fn write(&mut self, target: Address, value: u8) {
-        self.mem[target.0 as usize] = value;
-    }
-}
-
-impl TargetedWrite<Address, &[u8]> for Cpu {
-    fn write(&mut self, target: Address, value: &[u8]) {
-        let len = value.len();
-        let start = target.0 as usize;
-        let end = start + len;
-
-        if end <= self.mem.len() {
-            let mem_slice = &mut self.mem[start..end];
-            mem_slice.copy_from_slice(value);
-        } else {
-            panic!("Memory Overflow!!!")
-        }
-    }
-}
-
-impl<S> TargetedRead<Register<S>, S> for Cpu
+impl<S> Readable for Cpu
 where
     S: Copy + Clone + Eq + PartialEq,
 {
-    fn read(&self, target: Register<S>, buf: &mut S) {
-        *buf = target.read();
-    }
-}
+    type Buffer = S;
+    type Source = Register<S>;
 
-impl TargetedRead<Address, &mut u8> for Cpu {
-    fn read(&self, target: Address, value: &mut u8) {
-        *value = self.mem[target.0 as usize];
-    }
-}
-
-impl TargetedRead<Address, &mut [u8]> for Cpu {
-    fn read(&self, target: Address, buf: &mut [u8]) {
-        let len = buf.len();
-        let start = target.0 as usize;
-        let end = start + len;
-
-        if end <= self.mem.len() {
-            buf.copy_from_slice(&self.mem[start..end]);
-        } else {
-            panic!("Memory Overflow!!!")
-        }
+    fn read(&self, source: &Self::Source, buf: &mut Self::Buffer) -> Result<(), ReadError> {
+        *buf = source.value;
+        Ok(())
     }
 }
 
@@ -263,39 +262,13 @@ mod test {
         let mut cpu = Cpu::default();
 
         // Test setting the A register
-        cpu.write(Register8::A, 0xAB);
-        assert_eq!(cpu.af.0, 0xAB, "Failed to set register A");
+        cpu.af.write_hi(0xAB);
+        assert_eq!(cpu.af.hi(), 0xAB, "Failed to set register A");
 
-        // Test setting the B register
-        cpu.write(Register8::B, 0xBC);
-        assert_eq!(cpu.bc.0, 0xBC, "Failed to set register B");
+        cpu.af.write_lo(0xCD);
+        assert_eq!(cpu.af.lo(), 0xCD, "Failed to set register F");
 
-        // Test setting the C register
-        cpu.write(Register8::C, 0xCD);
-        assert_eq!(cpu.bc.1, 0xCD, "Failed to set register C");
-
-        // Test setting the D register
-        cpu.write(Register8::D, 0xDE);
-        assert_eq!(cpu.de.0, 0xDE, "Failed to set register D");
-
-        // Test setting the E register
-        cpu.write(Register8::E, 0xEF);
-        assert_eq!(cpu.de.1, 0xEF, "Failed to set register E");
-
-        // Test setting the H and L registers using HL
-        cpu.write(Register16::HL, 0x0102);
-        assert_eq!(cpu.hl.0, 0x02, "Failed to set register H");
-        assert_eq!(cpu.hl.1, 0x01, "Failed to set register L");
-
-        // Test setting the B and C registers using BC
-        cpu.write(Register16::BC, 0xBC0D);
-        assert_eq!(cpu.bc.0, 0x0D, "Failed to set register B in BC");
-        assert_eq!(cpu.bc.1, 0xBC, "Failed to set register C in BC");
-
-        // Test setting the D and E registers using DE
-        cpu.write(Register16::DE, 0xDEAD);
-        assert_eq!(cpu.de.0, 0xAD, "Failed to set register D in DE");
-        assert_eq!(cpu.de.1, 0xDE, "Failed to set register E in DE");
+        cpu.write(&mut cpu.bc.value, 0xBEEF);
     }
 
     #[test]
@@ -309,7 +282,7 @@ mod test {
         let target_address = Address(0x100); // Example address
 
         // Perform the write operation
-        cpu.write(target_address, data.as_slice());
+        cpu.mem.write(&target_address, data.as_slice());
 
         // Verify that memory has been updated correctly
         assert_eq!(cpu.mem[0x100], 0xAB);
@@ -325,23 +298,23 @@ mod test {
     fn test_read_register8() {
         let mut cpu = Cpu::default();
         // first byte is the LOW BYTE
-        cpu.af = 0xABCD.into(); // A = 0xCD, F = 0xAB
-        cpu.bc = 0xCDEF.into();
-        cpu.de = 0xBEEF.into();
+        cpu.af = Register::from(0xABCD); // A = 0xCD, F = 0xAB
+        cpu.bc = Register::from(0xCDEF);
+        cpu.de = Register::from(0xBEEF);
 
-        let mut buf = read_byte!(cpu, Register8::A);
+        let mut buf = cpu.af.hi();
         assert_eq!(buf, 0xCD);
 
-        buf = read_byte!(cpu, Register8::B);
+        buf = cpu.bc.hi();
         assert_eq!(buf, 0xEF);
 
-        buf = read_byte!(cpu, Register8::C);
+        buf = cpu.bc.lo();
         assert_eq!(buf, 0xCD);
 
-        buf = read_byte!(cpu, Register8::D);
+        buf = cpu.de.hi();
         assert_eq!(buf, 0xEF);
 
-        buf = read_byte!(cpu, Register8::E);
+        buf = cpu.de.lo();
         assert_eq!(buf, 0xBE);
     }
 
@@ -354,13 +327,13 @@ mod test {
 
         let mut buf = 0;
 
-        cpu.read(Register16::BC, &mut buf);
+        cpu.read(&cpu.af, &mut buf);
         assert_eq!(buf, 0xCDEF);
 
-        cpu.read(Register16::DE, &mut buf);
+        cpu.read(&cpu.bc, &mut buf);
         assert_eq!(buf, 0xBEEF);
 
-        cpu.read(Register16::HL, &mut buf);
+        cpu.read(&cpu.de, &mut buf);
         assert_eq!(buf, 0x0102);
     }
 
@@ -386,11 +359,11 @@ mod test {
         cpu.hl = 0x1122.into(); // Initialize H with 0x11 and L with 0x22
 
         // Test copying from Register A to Register B
-        cpu.write(Register8::B, Register8::A);
+        cpu.af.write_hi(cpu.bc.hi());
         assert_eq!(cpu.bc.0, cpu.af.0, "Failed to copy from A to B");
 
         // Test copying from Register C to Register D
-        cpu.write(Register8::D, Register8::C);
+        cpu.de.write_hi(cpu.bc.lo());
         assert_eq!(cpu.de.0, cpu.bc.1, "Failed to copy from C to D");
     }
 
@@ -398,7 +371,10 @@ mod test {
     fn test_write_register8_from_address() {
         let mut cpu = Cpu::default();
         cpu.mem[0x100] = 0x69;
-        cpu.write(Register8::B, Address(0x100));
+
+        cpu.mem.read(&Address(0x100), )
+
+        cpu.bc.write_hi(cpu.mem.read Address(0x100));
         assert_eq!(read_byte!(cpu, Register8::B), 0x69);
     }
 
