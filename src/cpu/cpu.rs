@@ -1,4 +1,6 @@
-use super::*;
+use anyhow::{bail, anyhow};
+
+use super::{*, register::RegisterID};
 /// Nice macros for convience
 
 /// Address type
@@ -130,6 +132,23 @@ impl Default for Cpu {
 }
 
 impl Cpu {
+
+    /// maps the value of a 3 bit number to a register
+    /// This *SHOULD* be consistent accross all opcodes
+    pub fn from_bit_triple(&mut self, trip: u8) -> anyhow::Result<RegisterID> {
+        match trip {
+            0 => Ok(RegisterID::B),
+            1 => Ok(RegisterID::C),
+            2 => Ok(RegisterID::D),
+            3 => Ok(RegisterID::E),
+            4 => Ok(RegisterID::H),
+            5 => Ok(RegisterID::L),
+            6 => Ok(RegisterID::HL),
+            7 => Ok(RegisterID::A),
+            _ => bail!("Unknown Register ID: {}", trip)
+        }
+    }
+
     /// Modular Decoder function, first we determine what kind of instruction
     /// and then we pass the opcode to a more specific decoder that generates the
     /// instruction
@@ -162,61 +181,61 @@ impl Cpu {
     }
 
     /// 8 Bit Load instruction decoder
-    // fn decode_load8<R: RegisteR>(&self, _opcode: u8) {
-    // // isolate important opcode patterns
-    // let high_bits = opcode & 0xC0; // 0xC0 = 0b11000000
-    // let mid_bits = opcode & 0x38; // 0x38 = 0b00111000
-    // let last_bits = opcode & 0x07; // 0x07 = 0b00000111
+    fn decode_load(&self, opcode: u8) {
+    // isolate important opcode patterns
+    let high_bits = opcode & 0xC0; // 0xC0 = 0b11000000
+    let mid_bits = opcode & 0x38; // 0x38 = 0b00111000
+    let last_bits = opcode & 0x07; // 0x07 = 0b00000111
 
-    // match (high_bits, mid_bits, last_bits) {
-    //     // 0b01xxx110
-    //     (0x40, _, 0x06) => {
-    //         // LD r, (HL)
-    //     }
+    match (high_bits, mid_bits, last_bits) {
+        // 0b01xxx110
+        (0x40, _, 0x06) => {
+            // LD r, (HL)
+        }
 
-    //     // 0b00xxx110
-    //     (0x00, _, 0x06) => {
-    //         // LD, r, d8
-    //     }
-    // }
+        // 0b00xxx110
+        (0x00, _, 0x06) => {
+            // LD, r, d8
+        }
+    }
 
-    // // start with loading between registers
-    // if opcode >> 6 == 1 {
-    //     // LD r, r
-    //     // opcode = 0b01xxxyyy -> xxx = dest; yyy = src
-    //     let src = from_bit_triple(opcode & 0b00000111);
-    //     let dest = from_bit_triple((opcode >> 3) & 0b00000111);
+    // start with loading between registers
+    if opcode >> 6 == 1 {
+        // LD r, r
+        // opcode = 0b01xxxyyy -> xxx = dest; yyy = src
+        let src = from_bit_triple(opcode & 0b00000111);
+        let dest = from_bit_triple((opcode >> 3) & 0b00000111);
 
-    //     Instruction {
-    //         op: InstructionType::Load8 {
-    //             src: LoadOperand<Register8>::Reg(src),
-    //             dest: LoadOperand<Register8>::Reg(dest),
-    //             followup: None,
-    //         },
-    //         cycles: 1,
-    //     }
-    // } else if opcode & 0b00000110 == 0b00000110 {
-    //     // LD r, d8
-    //     // opcode = 0b00xxx110 -> xxx = dest
+        Instruction {
+            op: InstructionType::Load {
+                src: LoadOperand::Reg(src),
+                dest: LoadOperand<Register8>::Reg(dest),
+                followup: None,
+            },
+            cycles: 1,
+        }
+    } else if opcode & 0b00000110 == 0b00000110 {
+        // LD r, d8
+        // opcode = 0b00xxx110 -> xxx = dest
 
-    //     // read immediate data and increment program counter
-    //     let immediate = self.read(Address(self.pc));
-    //     self.pc += 1;
+        // read immediate data and increment program counter
+        let immediate = self.read(Address(self.pc));
+        self.pc += 1;
 
-    //     let dest = from_bit_triple((opcode >> 3) & 0b00000111);
+        let dest = from_bit_triple((opcode >> 3) & 0b00000111);
 
-    //     Instruction {
-    //         op: InstructionType::Load8 {
-    //             src: LoadOperand<Register8>::Im8(immediate),
-    //             dest: LoadOperand<Register8>::Reg(dest),
-    //             followup: None,
-    //         },
-    //         cycles: 2,
-    //     }
-    // } else {
-    // todo!()
-    // }
-    // }
+        Instruction {
+            op: InstructionType::Load8 {
+                src: LoadOperand<Register8>::Im8(immediate),
+                dest: LoadOperand<Register8>::Reg(dest),
+                followup: None,
+            },
+            cycles: 2,
+        }
+    } else {
+    todo!()
+   }
+    }
 
     /// Move 1 step forward in execution
     // Read, Fetch, Execute

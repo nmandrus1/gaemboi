@@ -1,23 +1,29 @@
-use super::Address;
+use super::{register::RegisterID, Address, Register, RegisterSize};
 
-pub enum InstructionType<R> {
+pub enum InstructionType {
+    // Some Load Instruction
     Load {
-        src: LoadOperand<R>,
-        dest: LoadOperand<R>,
+        src: LoadOperand,
+        dest: LoadOperand,
 
         // Some Load Instructions will do more than just load, they will
         // decrement the value located at the previously written to address,
         // in cases like these we can represent that as an Optional followup
         // function to be run after the Operation
+        //
+        // fuck that noise ^^^
+        // maybe just an enum for followup type???
+        // TBD
         followup: Option<fn(Address)>,
     },
+
     Arith8,
     Arith16,
     Nop,
 }
 
-pub struct Instruction<R> {
-    instruction: InstructionType<R>,
+pub struct Instruction {
+    instruction: InstructionType,
     cycles: u8,
 }
 
@@ -27,13 +33,17 @@ pub struct Instruction<R> {
 //     maybe creating a special LoadRegister that only contains valid
 //     registers?
 
-pub enum LoadOperand<R> {
+pub enum LoadOperand {
     // Read or Write to/from a register
-    Reg(R),
+    Reg(RegisterID),
 
-    // Read or Write to/from a memory address
-    Mem(Address),
+    // 8 bit Immediate Data
+    Im8,
 
-    // Immediate Data
-    Im,
+    // 16 bit Immediate Data
+    Im16,
 }
+
+let opcodes: [u8; 256] = [
+    
+]

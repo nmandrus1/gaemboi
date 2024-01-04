@@ -9,6 +9,8 @@ pub trait RegisterSize {}
 impl RegisterSize for u8 {}
 impl RegisterSize for u16 {}
 
+pub trait RegisterBounds = Copy + Clone + Eq + PartialEq + RegisterSize;
+
 /// Generically sized Register with size specified by T
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Register<S>
@@ -70,7 +72,7 @@ impl Register<u16> {
     }
 }
 
-pub enum Register8 {
+pub enum RegisterID {
     B,
     C,
     D,
@@ -78,28 +80,10 @@ pub enum Register8 {
     H,
     L,
     A,
-}
-
-pub enum RegisteR16 {
     HL,
     BC,
     DE,
 }
-
-// /// maps the value of a 3 bit number to a register
-// /// This *SHOULD* be consistent accross all opcodes
-// pub fn from_bit_triple(trip: u8) -> impl Register {
-//     match trip {
-//         0 => Register8::B,
-//         1 => Register8::C,
-//         2 => Register8::D,
-//         3 => Register8::E,
-//         4 => Register8::H,
-//         5 => Register8::L,
-//         6 => Register16::HL,
-//         7 => Register8::A,
-//     }
-// }
 
 #[cfg(test)]
 mod test {
