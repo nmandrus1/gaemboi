@@ -8,7 +8,7 @@ pub use cpu::*;
 
 pub use instructions::*;
 
-pub use register::{Register, RegisterSize};
+pub use register::*;
 
 pub use traits::*;
 

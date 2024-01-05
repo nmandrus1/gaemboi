@@ -11,3 +11,9 @@ pub enum ReadError {
     #[error("Memory Overflow while reading from buffer")]
     MemoryOverflow,
 }
+
+#[derive(Error, Debug)]
+pub enum CpuError {
+    #[error("Invalid RegisterID recieved")]
+    InvalidRegisterID,
+}
