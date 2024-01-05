@@ -1,77 +1,271 @@
-use super::traits::{Readable, Writable};
+/// Register module
+///
+/// My goal for the Registers is to create a system where
+/// All the different register types are able to work together smoothly
+/// and can all operate together.
 
-pub trait Register: Writable {
-    type Size;
+/// Marker trait so that only specific primitive types can be used for Registers
+#[derive(Default)]
+pub struct Registers {
+    a: u8,
+    f: u8,
+    b: u8,
+    c: u8,
+    d: u8,
+    e: u8,
+    h: u8,
+    l: u8,
+    sp: u16,
+    pc: u16,
 }
 
-/// Tuple Struct of two 8 bit registers
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct Reg16(pub u8, pub u8);
-
-impl From<u16> for Reg16 {
-    fn from(value: u16) -> Self {
-        // Little endian is sus af
-        // I NEVER know whether the byte order is right
-        let bytes = value.to_le_bytes();
-        Self(bytes[0], bytes[1])
-    }
-}
-
-impl From<Reg16> for u16 {
-    fn from(value: Reg16) -> Self {
-        u16::from_le_bytes([value.0, value.1])
-    }
-}
-
-impl Writable for Reg16 {}
-impl Readable for Reg16 {}
-
-/// All the different registers that can be used by any instructions
-// The contained data is a palceholder at the moment for the reg_write() function
-// My plan was to reuse as much code as possible, and writing to a register is very
-// common, so when you call reg_write() you pass in this enum and wrap it around
-// the value you want to write to the register like: reg_write(Register::B(69))
-// this approach garuantees type saftey since some registers have different sizes
 pub enum Register8 {
+    A,
+    F,
     B,
     C,
     D,
     E,
     H,
     L,
-    A,
+    // A(A),
+    // F(F),
+    // B(B),
+    // C(C),
+    // D(D),
+    // E(E),
+    // H(H),
+    // L(L),
 }
 
-impl Register for Register8 {
+impl RegisterTrait for Register8 {
     type Size = u8;
+
+    fn fetch(&self, registers: &Registers) -> Self::Size {
+        match self {
+            Register8::A => A.fetch(registers),
+            Register8::F => F.fetch(registers),
+            Register8::B => B.fetch(registers),
+            Register8::C => C.fetch(registers),
+            Register8::D => D.fetch(registers),
+            Register8::E => E.fetch(registers),
+            Register8::H => H.fetch(registers),
+            Register8::L => L.fetch(registers),
+        }
+    }
+
+    fn write(&self, registers: &mut Registers, value: Self::Size) {
+        match self {
+            Register8::A => A.write(registers, value),
+            Register8::F => F.write(registers, value),
+            Register8::B => B.write(registers, value),
+            Register8::C => C.write(registers, value),
+            Register8::D => D.write(registers, value),
+            Register8::E => E.write(registers, value),
+            Register8::H => H.write(registers, value),
+            Register8::L => L.write(registers, value),
+        }
+    }
 }
 
 pub enum Register16 {
-    HL,
+    AF,
     BC,
     DE,
+    HL,
+    SP,
+    PC,
 }
 
-impl Register for Register16 {
+impl RegisterTrait for Register16 {
     type Size = u16;
+
+    fn fetch(&self, registers: &Registers) -> Self::Size {
+        match self {
+            Register16::AF => AF.fetch(registers),
+            Register16::BC => BC.fetch(registers),
+            Register16::DE => DE.fetch(registers),
+            Register16::HL => HL.fetch(registers),
+            Register16::SP => SP.fetch(registers),
+            Register16::PC => PC.fetch(registers),
+        }
+    }
+
+    fn write(&self, registers: &mut Registers, value: Self::Size) {
+        match self {
+            Register16::AF => AF.write(registers, value),
+            Register16::BC => BC.write(registers, value),
+            Register16::DE => DE.write(registers, value),
+            Register16::HL => HL.write(registers, value),
+            Register16::SP => SP.write(registers, value),
+            Register16::PC => PC.write(registers, value),
+        }
+    }
 }
 
-impl Writable for Register8 {}
-impl Readable for Register8 {}
-impl Writable for Register16 {}
-impl Readable for Register16 {}
+pub enum Register {
+    U8(Register8),
+    U16(Register16),
+}
 
-// /// maps the value of a 3 bit number to a register
-// /// This *SHOULD* be consistent accross all opcodes
-// pub fn from_bit_triple(trip: u8) -> impl Register {
-//     match trip {
-//         0 => Register8::B,
-//         1 => Register8::C,
-//         2 => Register8::D,
-//         3 => Register8::E,
-//         4 => Register8::H,
-//         5 => Register8::L,
-//         6 => Register16::HL,
-//         7 => Register8::A,
-//     }
-// }
+impl Registers {
+    pub fn fetch<R: RegisterTrait>(&self, fetcher: R) -> R::Size {
+        fetcher.fetch(self)
+    }
+
+    pub fn write<R: RegisterTrait>(&mut self, dest: R, value: R::Size) {
+        dest.write(self, value)
+    }
+}
+
+struct A;
+struct F;
+struct B;
+struct C;
+struct D;
+struct E;
+struct H;
+struct L;
+
+struct AF;
+struct BC;
+struct DE;
+struct HL;
+struct SP;
+struct PC;
+
+pub trait RegisterTrait {
+    type Size;
+
+    fn fetch(&self, registers: &Registers) -> Self::Size;
+    fn write(&self, registers: &mut Registers, value: Self::Size);
+}
+
+#[macro_export]
+macro_rules! impl_register_trait {
+    // Implement for 8-bit registers
+    ($regid:ident, $reg:ident, $type:ident) => {
+        impl RegisterTrait for $regid {
+            type Size = $type;
+
+            fn fetch(&self, registers: &Registers) -> Self::Size {
+                registers.$reg
+            }
+
+            fn write(&self, registers: &mut Registers, value: Self::Size) {
+                registers.$reg = value;
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! impl_register_trait16 {
+    // Implement for 16-bit register pairs
+    ($regid:ident, $high_reg:ident, $low_reg:ident) => {
+        impl RegisterTrait for $regid {
+            type Size = u16;
+
+            fn fetch(&self, registers: &Registers) -> Self::Size {
+                ((registers.$high_reg as u16) << 8) | (registers.$low_reg as u16)
+            }
+
+            fn write(&self, registers: &mut Registers, value: Self::Size) {
+                registers.$high_reg = (value >> 8) as u8;
+                registers.$low_reg = value as u8;
+            }
+        }
+    };
+}
+
+// Using the macro to implement the trait for each register
+impl_register_trait!(A, a, u8);
+impl_register_trait!(F, f, u8);
+impl_register_trait!(B, b, u8);
+impl_register_trait!(C, c, u8);
+impl_register_trait!(D, d, u8);
+impl_register_trait!(E, e, u8);
+impl_register_trait!(H, h, u8);
+impl_register_trait!(L, l, u8);
+impl_register_trait!(SP, sp, u16);
+impl_register_trait!(PC, pc, u16);
+
+impl_register_trait16!(AF, a, f);
+impl_register_trait16!(BC, b, c);
+impl_register_trait16!(DE, d, e);
+impl_register_trait16!(HL, h, l);
+
+#[cfg(test)]
+mod test {
+    use super::{Register16, Register8, Registers};
+
+    #[test]
+    fn test_register8_write() {
+        let mut registers = Registers::default();
+        registers.write(Register8::A, 8);
+
+        assert_eq!(registers.a, 8, "Failed to write to register A");
+    }
+
+    #[test]
+    fn test_register8_fetch() {
+        let mut registers = Registers::default();
+        registers.a = 8;
+
+        let byte = registers.fetch(Register8::A);
+        assert_eq!(byte, 8, "Failed to fetch the proper value from register A");
+    }
+
+    #[test]
+    fn test_split_register_write() {
+        let mut registers = Registers::default();
+        registers.write(Register16::AF, 0xA445); // A = 0xA4 F = 0x45
+
+        assert_eq!(
+            registers.a, 0xA4,
+            "Failed to write to register A, A = 0x{:02X}",
+            registers.a
+        );
+
+        assert_eq!(
+            registers.f, 0x45,
+            "Failed to write to register F, F = 0x{:02X}",
+            registers.f
+        );
+    }
+
+    #[test]
+    fn test_split_register_fetch() {
+        let mut registers = Registers::default();
+        registers.a = 0xA4;
+        registers.f = 0x45;
+
+        let wide = registers.fetch(Register16::AF);
+        assert_eq!(
+            wide, 0xA445,
+            "Failed to fetch the proper value from register AF"
+        );
+    }
+
+    #[test]
+    fn test_register16_write() {
+        let mut registers = Registers::default();
+        registers.write(Register16::SP, 0xA445);
+        assert_eq!(
+            registers.sp, 0xA445,
+            "Failed to fetch the proper value from register SP"
+        );
+    }
+
+    #[test]
+    fn test_register16_fetch() {
+        let mut registers = Registers::default();
+        registers.sp = 0xA445;
+
+        let wide = registers.fetch(Register16::SP);
+        assert_eq!(
+            wide, 0xA445,
+            "Failed to fetch the proper value from register SP"
+        );
+    }
+}
