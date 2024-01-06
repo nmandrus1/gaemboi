@@ -163,22 +163,25 @@ impl Cpu {
             // based on the destination, we should know exactly what kind of value it is expecting 
             // and then fetch that value
             InstructionType::Load { src, dest, .. } => {
-                match dest {
-                    LoadOperand::Reg8(reg) => {
+                match (dest, src) {
+                    (LoadOperand::Reg8(reg), _) => {
                         // fetch the byte from the source and write it to the register
                         let byte = self.fetch_byte_from_operand(src)?;
                         self.registers.write(reg, byte);
                     }
 
-                    LoadOperand::Address(addr) => {
+                    (LoadOperand::Address(addr), _) => {
                         let byte = self.fetch_byte_from_operand(src)?;
                         self.mem.write_byte(addr, byte)?;
                     }
 
-                    LoadOperand::Reg16(reg) => {
+                    (LoadOperand::Reg16(dest), LoadOperand::Reg8(_)) 
+                    | (LoadOperand::Reg16(dest), LoadOperand::Immediate8) => {
+                        
                         let word = self.fetch_word_from_operand(src)?;
-                        self.registers.write(reg, word);
+                        self.registers.write(dest, word);
                     }
+
                     _ => bail!(CpuError::UnsupportedInstruction(instr))                  
                 }
             }
