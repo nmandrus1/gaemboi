@@ -16,8 +16,14 @@ pub enum ReadError {
 
 #[derive(Error, Debug)]
 pub enum DecodeError {
-    #[error("Invalid RegisterID recieved, unable to decode bit triple : 0b{0:08b}")]
-    RegisterDecodeError(u8),
+    #[error("Invalid RP Table index : {0}")]
+    RPTableLookupError(u8),
+
+    #[error("Invalid RP1 Table index : {0}")]
+    RP1TableLookupError(u8),
+
+    #[error("Invalid RP2 Table index : {0}")]
+    RP2TableLookupError(u8),
 
     #[error("Invalid ALU table index recieved: {0}")]
     AluDecodeError(u8),

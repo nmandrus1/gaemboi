@@ -50,8 +50,8 @@ pub enum InstructionType {
 
     // separating these two since they're so straightforward
     // no need to clutter decoding logic
-    Inc,
-    Dec,
+    Inc(Operand),
+    Dec(Operand),
 
     Nop,
     Halt,
@@ -81,7 +81,7 @@ impl TryFrom<u8> for ArithOp {
             5 => Ok(Self::Or),
             6 => Ok(Self::Xor),
             7 => Ok(Self::Cmp),
-            _ => Err(DecodeError::RegisterDecodeError(value)),
+            _ => Err(DecodeError::AluDecodeError(value)),
         }
     }
 }
@@ -161,17 +161,29 @@ pub enum Operand {
 impl Operand {
     /// 8bit register lookup table based on bit triple
     /// details: https://gb-archive.github.io/salvage/decoding_gbz80_opcodes/Decoding%20Gamboy%20Z80%20Opcodes.html#upfx
-    pub fn from_r8_table(trip: u8) -> anyhow::Result<Self> {
+    pub fn from_r_table(trip: u8) -> anyhow::Result<Self> {
         RP_TABLE
             .get(trip as usize)
-            .ok_or(anyhow!(DecodeError::RegisterDecodeError(trip)))
+            .ok_or(anyhow!(DecodeError::RPTableLookupError(trip)))
             .map(|op| op.clone())
     }
 
     /// One of the 16 bit register lookup tables based on bit double
     /// details: https://gb-archive.github.io/salvage/decoding_gbz80_opcodes/Decoding%20Gamboy%20Z80%20Opcodes.html#upfx
-    pub fn from_r16_table1(dub: u8) -> anyhow::Result<Self> {
-        match dub {}
+    pub fn from_rp1_table(dub: u8) -> anyhow::Result<Self> {
+        RP1_TABLE
+            .get(dub as usize)
+            .ok_or(anyhow!(DecodeError::RP1TableLookupError(dub)))
+            .map(|op| op.clone())
+    }
+
+    /// One of the 16 bit register lookup tables based on bit double
+    /// details: https://gb-archive.github.io/salvage/decoding_gbz80_opcodes/Decoding%20Gamboy%20Z80%20Opcodes.html#upfx
+    pub fn from_rp2_table(dub: u8) -> anyhow::Result<Self> {
+        RP2_TABLE
+            .get(dub as usize)
+            .ok_or(anyhow!(DecodeError::RP1TableLookupError(dub)))
+            .map(|op| op.clone())
     }
 }
 
@@ -459,11 +471,11 @@ mod tests {
 
     #[test]
     fn test_decode_bit_triple() -> anyhow::Result<()> {
-        let operand = Operand::from_r8_table(0b000)?;
+        let operand = Operand::from_r_table(0b000)?;
         assert_eq!(operand, Operand::Reg8(register!(B)));
 
         // invalid register id
-        let reg = Operand::from_r8_table(69);
+        let reg = Operand::from_r_table(69);
         assert!(reg.is_err());
 
         Ok(())
