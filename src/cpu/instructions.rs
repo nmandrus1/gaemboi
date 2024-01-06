@@ -58,14 +58,32 @@ pub enum InstructionType {
 }
 
 pub enum ArithOp {
-    Add = 0,
-    Adc = 1,
-    Sub = ,
+    Add,
+    Adc,
+    Sub,
     Sbc,
-    Cmp,
     And,
     Or,
     Xor,
+    Cmp,
+}
+
+impl TryFrom<u8> for ArithOp {
+    type Error = DecodeError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Add),
+            1 => Ok(Self::Adc),
+            2 => Ok(Self::Sub),
+            3 => Ok(Self::Sbc),
+            4 => Ok(Self::And),
+            5 => Ok(Self::Or),
+            6 => Ok(Self::Xor),
+            7 => Ok(Self::Cmp),
+            _ => Err(DecodeError::RegisterDecodeError(value)),
+        }
+    }
 }
 
 /// Followup to instruction
