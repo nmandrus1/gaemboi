@@ -273,6 +273,11 @@ impl Cpu {
                 Ok(Instruction::load(src, dest, Some(FollowUp::Dec)))
             }
 
+            // 16 bit INC
+            (0, _, 3, _, 0) => Ok(Instruction::inc(Operand::from_rp_table(p)?)),
+            // 16 bit DEC
+            (0, _, 3, _, 1) => Ok(Instruction::dec(Operand::from_rp_table(p)?)),
+
             // special instruction
             (1, 6, 6, _, _ ) => Ok(Instruction::halt()),
 

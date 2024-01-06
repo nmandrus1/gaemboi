@@ -13,7 +13,7 @@ const RP_TABLE: [Operand; 8] = [
     Operand::Reg8(Register8::A),
 ];
 
-const RP1_TABLE: [Operand; 4] = [
+const RP_TABLE: [Operand; 4] = [
     Operand::Reg16(Register16::BC),
     Operand::Reg16(Register16::DE),
     Operand::Reg16(Register16::HL),
@@ -130,6 +130,22 @@ impl Instruction {
         }
     }
 
+    /// create a INC instruction
+    pub fn inc(operand: Operand) -> Self {
+        Self {
+            instruction: InstructionType::Inc(operand),
+            cycles: 1,
+        }
+    }
+
+    /// create a DEC instruction
+    pub fn dec(operand: Operand) -> Self {
+        Self {
+            instruction: InstructionType::Dec(operand),
+            cycles: 1,
+        }
+    }
+
     /// return the InstructionType
     pub fn itype(&self) -> InstructionType {
         self.instruction
@@ -170,8 +186,8 @@ impl Operand {
 
     /// One of the 16 bit register lookup tables based on bit double
     /// details: https://gb-archive.github.io/salvage/decoding_gbz80_opcodes/Decoding%20Gamboy%20Z80%20Opcodes.html#upfx
-    pub fn from_rp1_table(dub: u8) -> anyhow::Result<Self> {
-        RP1_TABLE
+    pub fn from_rp_table(dub: u8) -> anyhow::Result<Self> {
+        RP_TABLE
             .get(dub as usize)
             .ok_or(anyhow!(DecodeError::RP1TableLookupError(dub)))
             .map(|op| op.clone())
