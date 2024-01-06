@@ -2,7 +2,7 @@ use super::*;
 use anyhow::{anyhow, bail};
 use registers::RegisterTrait;
 
-const RP_TABLE: [Operand; 8] = [
+const R_TABLE: [Operand; 8] = [
     Operand::Reg8(Register8::B),
     Operand::Reg8(Register8::C),
     Operand::Reg8(Register8::D),
@@ -178,7 +178,7 @@ impl Operand {
     /// 8bit register lookup table based on bit triple
     /// details: https://gb-archive.github.io/salvage/decoding_gbz80_opcodes/Decoding%20Gamboy%20Z80%20Opcodes.html#upfx
     pub fn from_r_table(trip: u8) -> anyhow::Result<Self> {
-        RP_TABLE
+        R_TABLE
             .get(trip as usize)
             .ok_or(anyhow!(DecodeError::RPTableLookupError(trip)))
             .map(|op| op.clone())
@@ -486,13 +486,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_decode_bit_triple() -> anyhow::Result<()> {
+    fn test_rtable_lookup() -> anyhow::Result<()> {
         let operand = Operand::from_r_table(0b000)?;
         assert_eq!(operand, Operand::Reg8(register!(B)));
 
         // invalid register id
         let reg = Operand::from_r_table(69);
         assert!(reg.is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_rptable_lookup() -> anyhow::Result<()> {
+        let op = Operand::from_rp_table(1)?;
+        assert_eq!(op, Operand::Reg16(Register16::DE));
+
+        let op = Operand::from_rp_table(5);
+        assert!(op.is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_rp2table_lookup() -> anyhow::Result<()> {
+        let op = Operand::from_rp2_table(3)?;
+        assert_eq!(op, Operand::Reg16(Register16::AF));
+
+        let op = Operand::from_rp2_table(5);
+        assert!(op.is_err());
 
         Ok(())
     }

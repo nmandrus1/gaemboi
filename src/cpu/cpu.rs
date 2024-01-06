@@ -502,6 +502,18 @@ mod tests {
     }
 
     #[test]
+    fn test_decod_16bit_inc() -> anyhow::Result<()> {
+        let cpu = Cpu::default();
+
+        // Decode the INC BC instruction
+        let instr = cpu.decode(0x03)?;
+
+        assert_eq!(instr, Instruction::inc(Operand::Reg16(Register16::BC)));
+        
+        Ok(())
+    }
+
+    #[test]
     fn test_fetch_byte_loadoperand_reg8() -> anyhow::Result<()> {
         let mut cpu = Cpu::default();
         cpu.registers.write(register!(B), 0xAB);
