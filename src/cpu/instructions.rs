@@ -90,7 +90,7 @@ pub enum Operand {
 
     /// If a register is to be read as an address, it should ALWAYS
     /// be converted into an Address, to do otherwise is a mistake
-    Address(Address),
+    // Address(Address),
 
     // 8 bit Immediate Data
     Immediate8,

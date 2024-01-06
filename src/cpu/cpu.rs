@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result, bail, Ok, Context};
 use super::errors::{ReadError, WriteError, CpuError};
-use super::{registers::*, Instruction, InstructionType, Operand};
+use super::{registers::*, Instruction, InstructionType, Operand, FollowUp};
 use super::register;
 
 /// Address type
@@ -142,7 +142,8 @@ impl Cpu {
 
             Operand::Reg16(reg) => Ok(self.mem.read_byte(self.registers.as_addr(reg))?),
 
-            Operand::Address(addr) => self.mem.read_byte(addr),
+            // operand::address is depcrecated for now
+            // Operand::Address(addr) => self.mem.read_byte(addr),
 
             Operand::Immediate8 => {
                 // read the byte from the PC
@@ -177,16 +178,18 @@ impl Cpu {
                         self.registers.write(reg, byte);
                     }
 
-                    (Operand::Address(addr), _) => {
-                        let byte = self.fetch_byte_from_operand(src)?;
-                        self.mem.write_byte(addr, byte)?;
-                    }
+                    // deprecated for now
+                    // (Operand::Address(addr), _) => {
+                    //     let byte = self.fetch_byte_from_operand(src)?;
+                    //     self.mem.write_byte(addr, byte)?;
+                    // }
 
                     (Operand::Reg16(dest), Operand::Reg8(_)) 
                     | (Operand::Reg16(dest), Operand::Immediate8) => {
                         
-                        let word = self.fetch_word_from_operand(src)?;
-                        self.registers.write(dest, word);
+                        let addr = self.registers.as_addr(dest);
+                        let byte = self.fetch_byte_from_operand(src)?;
+                        self.mem.write_byte(addr, byte)?;
                     }
 
                     _ => bail!(CpuError::UnsupportedInstruction(instr))                  
@@ -214,6 +217,62 @@ impl Cpu {
         let z = opcode & 0x07; // 0x07 = 0b00000111
 
         match (x, y, z, p, q) {
+            // LD (BC), A
+            (0, _, 2, 0, 0) => {
+                let dest = Operand::Reg16(register!(BC));
+                let src = Operand::Reg8(Register8::A);
+                Ok(Instruction::load(src, dest, None))
+            }
+
+            // LD (DE), A
+            (0, _, 2, 1, 0) => {
+                let dest = Operand::Reg16(register!(DE));
+                let src = Operand::Reg8(Register8::A);
+                Ok(Instruction::load(src, dest, None))
+            }
+            
+            // LD (HL+), A
+            (0, _, 2, 2, 0) => {
+                let dest = Operand::Reg16(register!(HL));
+                let src = Operand::Reg8(Register8::A);
+                Ok(Instruction::load(src, dest, Some(FollowUp::Inc)))
+            }
+
+            // LD (HL-), A
+            (0, _, 2, 3, 0) => {
+                let dest = Operand::Reg16(register!(HL));
+                let src = Operand::Reg8(Register8::A);
+                Ok(Instruction::load(src, dest, Some(FollowUp::Dec)))
+            }
+            
+            // LD A, (BC)
+            (0, _, 2, 0, 1) => {
+                let dest = Operand::Reg8(Register8::A);
+                let src = Operand::Reg16(register!(BC));
+                Ok(Instruction::load(src, dest, None))
+            }
+
+            // LD A, (DE)
+            (0, _, 2, 1, 1) => {
+                let dest = Operand::Reg8(Register8::A);
+                let src = Operand::Reg16(register!(DE));
+                Ok(Instruction::load(src, dest, None))
+            }
+
+            // LD A, (HL+)
+            (0, _, 2, 2, 1) => {
+                let dest = Operand::Reg8(Register8::A);
+                let src = Operand::Reg16(register!(HL));
+                Ok(Instruction::load(src, dest, Some(FollowUp::Inc)))
+            }
+
+            // LD A, (HL-)
+            (0, _, 2, 3, 1) => {
+                let dest = Operand::Reg8(Register8::A);
+                let src = Operand::Reg16(register!(HL));
+                Ok(Instruction::load(src, dest, Some(FollowUp::Dec)))
+            }
+
             // special instruction
             (1, 6, 6, _, _ ) => Ok(Instruction::halt()),
 
@@ -403,6 +462,39 @@ mod tests {
         Ok(())
     }        
 
+    
+    #[test]
+    fn test_indirect_load_decoding() -> anyhow::Result<()> {
+        let cpu = Cpu::default();
+
+        // Decode the LD (BC), A instruction
+        let instr = cpu.decode(0x02)?;
+
+        // Check if the decoded instruction matches the expected instruction
+        assert_eq!(
+            instr,
+            Instruction::load(
+                Operand::Reg8(Register8::A),
+                Operand::Reg16(Register16::BC),
+                None
+            )
+        );
+
+        // Decode the LD (BC), A instruction
+        let instr = cpu.decode(0x2A)?;
+
+        // Check if the decoded instruction matches the expected instruction
+        assert_eq!(
+            instr,
+            Instruction::load(
+                Operand::Reg16(Register16::HL),
+                Operand::Reg8(Register8::A),
+                Some(FollowUp::Inc)
+            )
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn test_fetch_byte_loadoperand_reg8() -> anyhow::Result<()> {
@@ -422,7 +514,7 @@ mod tests {
         cpu.registers.write(register!(BC), 0xABCD);
         cpu.mem.write_byte(Address(0xABCD), 0xFE)?;
 
-        let byte = cpu.fetch_byte_from_operand(Operand::Address(Address(cpu.registers.fetch(register!(BC)))))?;
+        let byte = cpu.fetch_byte_from_operand(Operand::Reg16(register!(BC)))?;
         assert_eq!(byte, 0xFE);
 
         Ok(())
@@ -493,4 +585,5 @@ mod tests {
 
         Ok(())
     }
+
 }
