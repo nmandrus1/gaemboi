@@ -1,6 +1,31 @@
 use super::*;
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use registers::RegisterTrait;
+
+const RP_TABLE: [Operand; 8] = [
+    Operand::Reg8(Register8::B),
+    Operand::Reg8(Register8::C),
+    Operand::Reg8(Register8::D),
+    Operand::Reg8(Register8::E),
+    Operand::Reg8(Register8::H),
+    Operand::Reg8(Register8::L),
+    Operand::Reg16(Register16::HL),
+    Operand::Reg8(Register8::A),
+];
+
+const RP1_TABLE: [Operand; 4] = [
+    Operand::Reg16(Register16::BC),
+    Operand::Reg16(Register16::DE),
+    Operand::Reg16(Register16::HL),
+    Operand::Reg16(Register16::SP),
+];
+
+const RP2_TABLE: [Operand; 4] = [
+    Operand::Reg16(Register16::BC),
+    Operand::Reg16(Register16::DE),
+    Operand::Reg16(Register16::HL),
+    Operand::Reg16(Register16::AF),
+];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum InstructionType {
@@ -22,8 +47,25 @@ pub enum InstructionType {
 
     Arith8,
     Arith16,
+
+    // separating these two since they're so straightforward
+    // no need to clutter decoding logic
+    Inc,
+    Dec,
+
     Nop,
     Halt,
+}
+
+pub enum ArithOp {
+    Add = 0,
+    Adc = 1,
+    Sub = ,
+    Sbc,
+    Cmp,
+    And,
+    Or,
+    Xor,
 }
 
 /// Followup to instruction
@@ -99,20 +141,19 @@ pub enum Operand {
 }
 
 impl Operand {
-    /// decode the 8bit register table
+    /// 8bit register lookup table based on bit triple
     /// details: https://gb-archive.github.io/salvage/decoding_gbz80_opcodes/Decoding%20Gamboy%20Z80%20Opcodes.html#upfx
-    pub fn from_8bit_table(trip: u8) -> anyhow::Result<Self> {
-        match trip {
-            0 => Ok(Self::Reg8(Register8::B)),
-            1 => Ok(Self::Reg8(Register8::C)),
-            2 => Ok(Self::Reg8(Register8::D)),
-            3 => Ok(Self::Reg8(Register8::E)),
-            4 => Ok(Self::Reg8(Register8::H)),
-            5 => Ok(Self::Reg8(Register8::L)),
-            6 => Ok(Self::Reg16(Register16::HL)),
-            7 => Ok(Self::Reg8(Register8::A)),
-            _ => bail!(DecodeError::RegisterDecodeError(trip)),
-        }
+    pub fn from_r8_table(trip: u8) -> anyhow::Result<Self> {
+        RP_TABLE
+            .get(trip as usize)
+            .ok_or(anyhow!(DecodeError::RegisterDecodeError(trip)))
+            .map(|op| op.clone())
+    }
+
+    /// One of the 16 bit register lookup tables based on bit double
+    /// details: https://gb-archive.github.io/salvage/decoding_gbz80_opcodes/Decoding%20Gamboy%20Z80%20Opcodes.html#upfx
+    pub fn from_r16_table1(dub: u8) -> anyhow::Result<Self> {
+        match dub {}
     }
 }
 
@@ -400,11 +441,11 @@ mod tests {
 
     #[test]
     fn test_decode_bit_triple() -> anyhow::Result<()> {
-        let operand = Operand::from_8bit_table(0b000)?;
+        let operand = Operand::from_r8_table(0b000)?;
         assert_eq!(operand, Operand::Reg8(register!(B)));
 
         // invalid register id
-        let reg = Operand::from_8bit_table(69);
+        let reg = Operand::from_r8_table(69);
         assert!(reg.is_err());
 
         Ok(())

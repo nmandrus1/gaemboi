@@ -278,8 +278,8 @@ impl Cpu {
 
             // LD r, r
             (1, _, _, _, _) => {
-                let dest = Operand::from_8bit_table(y)?;               
-                let src = Operand::from_8bit_table(z)?;
+                let dest = Operand::from_r8_table(y)?;               
+                let src = Operand::from_r8_table(z)?;
                 // nop optimization
                 if src == dest { return Ok(Instruction::nop())}
                 Ok(Instruction::load(src, dest, None))
@@ -287,7 +287,7 @@ impl Cpu {
 
             // LD, r, d8
             (0, _, 6, _, _) => {
-                let dest = Operand::from_8bit_table(y)?;
+                let dest = Operand::from_r8_table(y)?;
                 let src = Operand::Immediate8;
                 Ok(Instruction::load(src, dest, None))
             },
