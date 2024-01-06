@@ -1,4 +1,4 @@
-use super::errors::DecodeError;
+use super::{errors::DecodeError, Address};
 use anyhow::bail;
 
 /// Simplify writing out the entire Register enum
@@ -91,18 +91,6 @@ macro_rules! register {
 ///     assert_eq!(reg, Register::U8(Register8::B));
 /// # }
 ///```
-pub fn decode_bit_triple_reg8(trip: u8) -> anyhow::Result<Register8> {
-    match trip {
-        0 => Ok(Register8::B),
-        1 => Ok(Register8::C),
-        2 => Ok(Register8::D),
-        3 => Ok(Register8::E),
-        4 => Ok(Register8::H),
-        5 => Ok(Register8::L),
-        7 => Ok(Register8::A),
-        _ => bail!(DecodeError::RegisterDecodeError(trip)),
-    }
-}
 
 /// Struct containing the raw registers
 #[derive(Default)]
@@ -160,6 +148,32 @@ impl RegisterTrait for Register8 {
             Register8::L => L.write(registers, value),
         }
     }
+
+    fn inc(&self, registers: &mut Registers) {
+        match self {
+            Register8::A => A.inc(registers),
+            Register8::F => F.inc(registers),
+            Register8::B => B.inc(registers),
+            Register8::C => C.inc(registers),
+            Register8::D => D.inc(registers),
+            Register8::E => E.inc(registers),
+            Register8::H => H.inc(registers),
+            Register8::L => L.inc(registers),
+        }
+    }
+
+    fn dec(&self, registers: &mut Registers) {
+        match self {
+            Register8::A => A.dec(registers),
+            Register8::F => F.dec(registers),
+            Register8::B => B.dec(registers),
+            Register8::C => C.dec(registers),
+            Register8::D => D.dec(registers),
+            Register8::E => E.dec(registers),
+            Register8::H => H.dec(registers),
+            Register8::L => L.dec(registers),
+        }
+    }
 }
 
 /// All 16 bit registers
@@ -197,6 +211,28 @@ impl RegisterTrait for Register16 {
             Register16::PC => PC.write(registers, value),
         }
     }
+
+    fn inc(&self, registers: &mut Registers) {
+        match self {
+            Register16::AF => AF.inc(registers),
+            Register16::BC => BC.inc(registers),
+            Register16::DE => DE.inc(registers),
+            Register16::HL => HL.inc(registers),
+            Register16::SP => SP.inc(registers),
+            Register16::PC => PC.inc(registers),
+        }
+    }
+
+    fn dec(&self, registers: &mut Registers) {
+        match self {
+            Register16::AF => AF.dec(registers),
+            Register16::BC => BC.dec(registers),
+            Register16::DE => DE.dec(registers),
+            Register16::HL => HL.dec(registers),
+            Register16::SP => SP.dec(registers),
+            Register16::PC => PC.dec(registers),
+        }
+    }
 }
 
 impl Registers {
@@ -232,6 +268,21 @@ impl Registers {
     /// ```
     pub fn write<R: RegisterTrait>(&mut self, dest: R, value: R::Size) {
         dest.write(self, value)
+    }
+
+    /// Increment target register
+    pub fn inc<R: RegisterTrait>(&mut self, dest: R) {
+        dest.inc(self);
+    }
+
+    /// decrement target register
+    pub fn dec<R: RegisterTrait>(&mut self, dest: R) {
+        dest.dec(self);
+    }
+
+    /// return the desired 16 bit register as an address
+    pub fn as_addr(&self, reg: Register16) -> Address {
+        Address::from(reg.fetch(self))
     }
 }
 
@@ -273,6 +324,12 @@ pub trait RegisterTrait: Copy {
 
     /// write to the desired register
     fn write(&self, registers: &mut Registers, value: Self::Size);
+
+    /// increment register
+    fn inc(&self, registers: &mut Registers);
+
+    /// decrement register
+    fn dec(&self, registers: &mut Registers);
 }
 
 #[macro_export]
@@ -288,6 +345,14 @@ macro_rules! impl_register_trait {
 
             fn write(&self, registers: &mut Registers, value: Self::Size) {
                 registers.$reg = value;
+            }
+
+            fn inc(&self, registers: &mut Registers) {
+                registers.$reg += 1;
+            }
+
+            fn dec(&self, registers: &mut Registers) {
+                registers.$reg -= 1;
             }
         }
     };
@@ -307,6 +372,16 @@ macro_rules! impl_register_trait16 {
             fn write(&self, registers: &mut Registers, value: Self::Size) {
                 registers.$high_reg = (value >> 8) as u8;
                 registers.$low_reg = value as u8;
+            }
+
+            fn inc(&self, registers: &mut Registers) {
+                let value = self.fetch(registers);
+                self.write(registers, value + 1);
+            }
+
+            fn dec(&self, registers: &mut Registers) {
+                let value = self.fetch(registers);
+                self.write(registers, value - 1);
             }
         }
     };
@@ -330,7 +405,7 @@ impl_register_trait16!(DE, d, e);
 impl_register_trait16!(HL, h, l);
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]
@@ -351,6 +426,24 @@ mod test {
     }
 
     #[test]
+    fn test_register8_inc() {
+        let mut registers = Registers::default();
+        registers.a = 7;
+        registers.inc(Register8::A);
+
+        assert_eq!(registers.a, 8, "Failed to write to register A");
+    }
+
+    #[test]
+    fn test_register8_dec() {
+        let mut registers = Registers::default();
+        registers.a = 8;
+        registers.dec(Register8::A);
+
+        assert_eq!(registers.a, 7, "Failed to write to register A");
+    }
+
+    #[test]
     fn test_split_register_write() {
         let mut registers = Registers::default();
         registers.write(Register16::AF, 0xA445); // A = 0xA4 F = 0x45
@@ -363,6 +456,44 @@ mod test {
 
         assert_eq!(
             registers.f, 0x45,
+            "Failed to write to register F, F = 0x{:02X}",
+            registers.f
+        );
+    }
+
+    #[test]
+    fn test_split_register_inc() {
+        let mut registers = Registers::default();
+        registers.write(Register16::AF, 0xA445); // A = 0xA4 F = 0x45
+        registers.inc(Register16::AF);
+
+        assert_eq!(
+            registers.a, 0xA4,
+            "Failed to write to register A, A = 0x{:02X}",
+            registers.a
+        );
+
+        assert_eq!(
+            registers.f, 0x46,
+            "Failed to write to register F, F = 0x{:02X}",
+            registers.f
+        );
+    }
+
+    #[test]
+    fn test_split_register_dec() {
+        let mut registers = Registers::default();
+        registers.write(Register16::AF, 0xA445); // A = 0xA4 F = 0x45
+        registers.dec(Register16::AF);
+
+        assert_eq!(
+            registers.a, 0xA4,
+            "Failed to write to register A, A = 0x{:02X}",
+            registers.a
+        );
+
+        assert_eq!(
+            registers.f, 0x44,
             "Failed to write to register F, F = 0x{:02X}",
             registers.f
         );
@@ -392,6 +523,30 @@ mod test {
     }
 
     #[test]
+    fn test_register16_inc() {
+        let mut registers = Registers::default();
+        registers.write(Register16::SP, 0xA445);
+        registers.inc(Register16::SP);
+
+        assert_eq!(
+            registers.sp, 0xA446,
+            "Failed to fetch the proper value from register SP"
+        );
+    }
+
+    #[test]
+    fn test_register16_dec() {
+        let mut registers = Registers::default();
+        registers.write(Register16::SP, 0xA445);
+        registers.dec(Register16::SP);
+
+        assert_eq!(
+            registers.sp, 0xA444,
+            "Failed to fetch the proper value from register SP"
+        );
+    }
+
+    #[test]
     fn test_register16_fetch() {
         let mut registers = Registers::default();
         registers.sp = 0xA445;
@@ -401,17 +556,5 @@ mod test {
             wide, 0xA445,
             "Failed to fetch the proper value from register SP"
         );
-    }
-
-    #[test]
-    fn test_decode_bit_triple() -> anyhow::Result<()> {
-        let reg = decode_bit_triple_reg8(0b000)?;
-        assert_eq!(reg, register!(B));
-
-        // invalid register id
-        let reg = decode_bit_triple_reg8(69);
-        assert!(reg.is_err());
-
-        Ok(())
     }
 }

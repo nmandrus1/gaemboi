@@ -1,12 +1,13 @@
 use super::*;
+use anyhow::bail;
 use registers::RegisterTrait;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum InstructionType {
     // Some Load Instruction
     Load {
-        src: LoadOperand,
-        dest: LoadOperand,
+        src: Operand,
+        dest: Operand,
 
         // Some Load Instructions will do more than just load, they will
         // decrement the value located at the previously written to address,
@@ -16,17 +17,18 @@ pub enum InstructionType {
         // fuck that noise ^^^
         // maybe just an enum for followup type???
         // TBD
-        followup: Option<Followup>,
+        followup: Option<FollowUp>,
     },
 
     Arith8,
     Arith16,
     Nop,
+    Halt,
 }
 
 /// Followup to instruction
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Followup {
+pub enum FollowUp {
     /// increment
     Inc,
     /// decrement
@@ -35,8 +37,43 @@ pub enum Followup {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Instruction {
-    pub instruction: InstructionType,
-    pub cycles: u8,
+    instruction: InstructionType,
+    cycles: u8,
+}
+
+impl Instruction {
+    /// Create a load function from operands
+    pub fn load(src: Operand, dest: Operand, followup: Option<FollowUp>) -> Self {
+        Self {
+            instruction: InstructionType::Load {
+                src,
+                dest,
+                followup,
+            },
+            cycles: 1,
+        }
+    }
+
+    /// create a HALT instruction
+    pub fn halt() -> Self {
+        Self {
+            instruction: InstructionType::Halt,
+            cycles: 1,
+        }
+    }
+
+    /// create a NOP instruction
+    pub fn nop() -> Self {
+        Self {
+            instruction: InstructionType::Nop,
+            cycles: 1,
+        }
+    }
+
+    /// return the InstructionType
+    pub fn itype(&self) -> InstructionType {
+        self.instruction
+    }
 }
 
 /// Enum to represent the different possible operands for a Load instruction
@@ -46,7 +83,7 @@ pub struct Instruction {
 //     registers?
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum LoadOperand {
+pub enum Operand {
     // Read or Write to/from a register
     Reg8(Register8),
     Reg16(Register16),
@@ -59,6 +96,24 @@ pub enum LoadOperand {
     Immediate8,
     // 16 bit Immediate Data
     Immediate16,
+}
+
+impl Operand {
+    /// decode the 8bit register table
+    /// details: https://gb-archive.github.io/salvage/decoding_gbz80_opcodes/Decoding%20Gamboy%20Z80%20Opcodes.html#upfx
+    pub fn from_8bit_table(trip: u8) -> anyhow::Result<Self> {
+        match trip {
+            0 => Ok(Self::Reg8(Register8::B)),
+            1 => Ok(Self::Reg8(Register8::C)),
+            2 => Ok(Self::Reg8(Register8::D)),
+            3 => Ok(Self::Reg8(Register8::E)),
+            4 => Ok(Self::Reg8(Register8::H)),
+            5 => Ok(Self::Reg8(Register8::L)),
+            6 => Ok(Self::Reg16(Register16::HL)),
+            7 => Ok(Self::Reg8(Register8::A)),
+            _ => bail!(DecodeError::RegisterDecodeError(trip)),
+        }
+    }
 }
 
 // #[rustfmt::skip]
@@ -338,3 +393,20 @@ pub enum LoadOperand {
 //    Instruction {instruction: InstructionType::Nop, cycles: 1}, // 0xFE
 //    Instruction {instruction: InstructionType::Nop, cycles: 1}, // 0xFF
 // ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decode_bit_triple() -> anyhow::Result<()> {
+        let operand = Operand::from_8bit_table(0b000)?;
+        assert_eq!(operand, Operand::Reg8(register!(B)));
+
+        // invalid register id
+        let reg = Operand::from_8bit_table(69);
+        assert!(reg.is_err());
+
+        Ok(())
+    }
+}

@@ -3,6 +3,12 @@
 
 mod cpu;
 
-fn main() {
-    println!("Hello, world!");
+use anyhow::Result;
+
+fn main() -> Result<()> {
+    let mut cpu = cpu::Cpu::default();
+
+    cpu.run()?;
+
+    Ok(())
 }
