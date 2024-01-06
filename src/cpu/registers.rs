@@ -1,10 +1,110 @@
+use super::errors::DecodeError;
+use anyhow::bail;
+
+/// Simplify writing out the entire Register enum
+///  
+/// ```
+/// # #[macro_use] extern crate foo;
+/// # fn main() {
+///       let x = register!(B);
+///       assert_eq!(x, Register8::B)
+///
+///
+///       let y = register!(SP);
+///       assert_eq!(x, Register16::SP)
+/// # }
+/// ```
+///
+/// ```compile_fail
+/// # #[macro_use] extern crate foo;
+/// # fn main() {
+///       // this won't compile!
+///       let x = register!(Z)
+/// # }
+/// ```
+#[macro_export]
+macro_rules! register {
+    // For 8-bit registers
+    (A) => {
+        Register8::A
+    };
+    (F) => {
+        Register8::F
+    };
+    (B) => {
+        Register8::B
+    };
+    (C) => {
+        Register8::C
+    };
+    (D) => {
+        Register8::D
+    };
+    (E) => {
+        Register8::E
+    };
+    (H) => {
+        Register8::H
+    };
+    (L) => {
+        Register8::L
+    };
+
+    // For 16-bit registers
+    (AF) => {
+        Register16::AF
+    };
+    (BC) => {
+        Register16::BC
+    };
+    (DE) => {
+        Register16::DE
+    };
+    (HL) => {
+        Register16::HL
+    };
+    (SP) => {
+        Register16::SP
+    };
+    (PC) => {
+        Register16::PC
+    };
+}
+
 /// Register module
 ///
 /// My goal for the Registers is to create a system where
 /// All the different register types are able to work together smoothly
 /// and can all operate together.
 
-/// Marker trait so that only specific primitive types can be used for Registers
+/// Decode a bit triple for load operations
+///
+/// Many load operations will encode the register operands in the bytes of the opcode
+///
+/// # Example
+///```
+/// use anyhow::Result;
+
+/// # fn main() -> Result<()> {
+///     // 0b000 is the encoding for Register B
+///     let reg = decode_bit_triple(0b000)?;
+///     assert_eq!(reg, Register::U8(Register8::B));
+/// # }
+///```
+pub fn decode_bit_triple_reg8(trip: u8) -> anyhow::Result<Register8> {
+    match trip {
+        0 => Ok(Register8::B),
+        1 => Ok(Register8::C),
+        2 => Ok(Register8::D),
+        3 => Ok(Register8::E),
+        4 => Ok(Register8::H),
+        5 => Ok(Register8::L),
+        7 => Ok(Register8::A),
+        _ => bail!(DecodeError::RegisterDecodeError(trip)),
+    }
+}
+
+/// Struct containing the raw registers
 #[derive(Default)]
 pub struct Registers {
     a: u8,
@@ -19,6 +119,8 @@ pub struct Registers {
     pc: u16,
 }
 
+/// All 8 bit registers
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum Register8 {
     A,
     F,
@@ -28,14 +130,6 @@ pub enum Register8 {
     E,
     H,
     L,
-    // A(A),
-    // F(F),
-    // B(B),
-    // C(C),
-    // D(D),
-    // E(E),
-    // H(H),
-    // L(L),
 }
 
 impl RegisterTrait for Register8 {
@@ -68,6 +162,8 @@ impl RegisterTrait for Register8 {
     }
 }
 
+/// All 16 bit registers
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum Register16 {
     AF,
     BC,
@@ -103,41 +199,79 @@ impl RegisterTrait for Register16 {
     }
 }
 
-pub enum Register {
-    U8(Register8),
-    U16(Register16),
-}
-
 impl Registers {
+    /// fetch the value contained in a register, the return type depends
+    /// on the size of the register passed, i.e. any U16 variant will return a u16
+    /// and U8 variants will return a u8
+    ///
+    /// # Example
+    /// ```
+    /// let mut registers = Registers::default();
+    /// registers.write(Register::U8(Register8::B), 420);
+    ///
+    /// let 8bit_b = registers.fetch(Register::U8(Register8::B));
+    /// assert_eq!(8bit_b, 420);
+    ///
+    /// ```
     pub fn fetch<R: RegisterTrait>(&self, fetcher: R) -> R::Size {
         fetcher.fetch(self)
     }
 
+    /// Write the value to the desired register, the type of value written depends
+    /// on the size of the register passed, i.e. any U16 variant will require a u16
+    /// and U8 variants will require a u8
+    ///
+    /// # Example
+    /// ```
+    /// let mut registers = Registers::default();
+    /// registers.write(Register::U16(Register16::AF), 420);
+    ///
+    /// let 16bit_af = registers.fetch(Register::U16(Register16::AF));
+    /// assert_eq!(16bit_af, 420);
+    ///
+    /// ```
     pub fn write<R: RegisterTrait>(&mut self, dest: R, value: R::Size) {
         dest.write(self, value)
     }
 }
 
+#[derive(Clone, Copy)]
 struct A;
+#[derive(Clone, Copy)]
 struct F;
+#[derive(Clone, Copy)]
 struct B;
+#[derive(Clone, Copy)]
 struct C;
+#[derive(Clone, Copy)]
 struct D;
+#[derive(Clone, Copy)]
 struct E;
+#[derive(Clone, Copy)]
 struct H;
+#[derive(Clone, Copy)]
 struct L;
 
+#[derive(Clone, Copy)]
 struct AF;
+#[derive(Clone, Copy)]
 struct BC;
+#[derive(Clone, Copy)]
 struct DE;
+#[derive(Clone, Copy)]
 struct HL;
+#[derive(Clone, Copy)]
 struct SP;
+#[derive(Clone, Copy)]
 struct PC;
 
-pub trait RegisterTrait {
-    type Size;
+pub trait RegisterTrait: Copy {
+    type Size: Copy;
 
+    /// fetch the desired register
     fn fetch(&self, registers: &Registers) -> Self::Size;
+
+    /// write to the desired register
     fn write(&self, registers: &mut Registers, value: Self::Size);
 }
 
@@ -197,7 +331,7 @@ impl_register_trait16!(HL, h, l);
 
 #[cfg(test)]
 mod test {
-    use super::{Register16, Register8, Registers};
+    use super::*;
 
     #[test]
     fn test_register8_write() {
@@ -267,5 +401,17 @@ mod test {
             wide, 0xA445,
             "Failed to fetch the proper value from register SP"
         );
+    }
+
+    #[test]
+    fn test_decode_bit_triple() -> anyhow::Result<()> {
+        let reg = decode_bit_triple_reg8(0b000)?;
+        assert_eq!(reg, register!(B));
+
+        // invalid register id
+        let reg = decode_bit_triple_reg8(69);
+        assert!(reg.is_err());
+
+        Ok(())
     }
 }

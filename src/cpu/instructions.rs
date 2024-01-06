@@ -1,11 +1,12 @@
 use super::*;
+use registers::RegisterTrait;
 
-#[derive(Clone, Copy)]
-pub enum InstructionType<R: RegisterTrait> {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum InstructionType {
     // Some Load Instruction
     Load {
-        src: LoadOperand<R>,
-        dest: LoadOperand<R>,
+        src: LoadOperand,
+        dest: LoadOperand,
 
         // Some Load Instructions will do more than just load, they will
         // decrement the value located at the previously written to address,
@@ -15,7 +16,7 @@ pub enum InstructionType<R: RegisterTrait> {
         // fuck that noise ^^^
         // maybe just an enum for followup type???
         // TBD
-        followup: Option<fn(Address)>,
+        followup: Option<Followup>,
     },
 
     Arith8,
@@ -23,10 +24,19 @@ pub enum InstructionType<R: RegisterTrait> {
     Nop,
 }
 
-#[derive(Clone, Copy)]
-pub struct Instruction<R: RegisterTrait> {
-    instruction: InstructionType<R>,
-    cycles: u8,
+/// Followup to instruction
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Followup {
+    /// increment
+    Inc,
+    /// decrement
+    Dec,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Instruction {
+    pub instruction: InstructionType,
+    pub cycles: u8,
 }
 
 /// Enum to represent the different possible operands for a Load instruction
@@ -35,16 +45,20 @@ pub struct Instruction<R: RegisterTrait> {
 //     maybe creating a special LoadRegister that only contains valid
 //     registers?
 
-#[derive(Clone, Copy)]
-pub enum LoadOperand<R: RegisterTrait> {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LoadOperand {
     // Read or Write to/from a register
-    Reg(R),
+    Reg8(Register8),
+    Reg16(Register16),
+
+    /// If a register is to be read as an address, it should ALWAYS
+    /// be converted into an Address, to do otherwise is a mistake
+    Address(Address),
 
     // 8 bit Immediate Data
-    Im8,
-
+    Immediate8,
     // 16 bit Immediate Data
-    Im16,
+    Immediate16,
 }
 
 // #[rustfmt::skip]

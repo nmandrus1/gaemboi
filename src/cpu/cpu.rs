@@ -1,6 +1,7 @@
-use anyhow::{bail, Ok};
-use super::errors::{ReadError, WriteError};
-use super::register::*;
+use anyhow::{anyhow, Result, bail, Ok, Context};
+use super::errors::{ReadError, WriteError, CpuError};
+use super::{registers::*, Instruction, InstructionType, LoadOperand};
+use super::register;
 
 /// Address type
 // check out the "newtype" pattern in Rust to see more examples
@@ -11,7 +12,7 @@ use super::register::*;
 //     it becomes clear based on the type alone what the variable does
 // 3) Flexibilty: We can define methods on this type and even change its
 //     representation and behavior if we need to in the future
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Address(u16);
 
 impl std::fmt::Debug for Address {
@@ -40,10 +41,10 @@ impl Memory {
     }
 
     /// read a single byte from memory at the passed address
-    pub fn read_byte(&self, src: Address) -> Result<u8, ReadError> {
+    pub fn read_byte(&self, src: Address) -> Result<u8> {
         self.0
             .get(src.0 as usize)
-            .ok_or(ReadError::MemoryOverflow)
+            .ok_or(anyhow!(ReadError::MemoryOverflow))
             .map(|val| val.clone())
     }
 
@@ -101,26 +102,96 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    /// maps the value of a 3 bit number to a register
-    /// This *SHOULD* be consistent accross all opcodes
-    fn from_bit_triple_helper(&mut self, trip: u8) -> anyhow::Result<Register> {
-        match trip {
-            0 => Ok(Register::U8(Register8::B)),
-            1 => Ok(Register::U8(Register8::C)),
-            2 => Ok(Register::U8(Register8::D)),
-            3 => Ok(Register::U8(Register8::E)),
-            4 => Ok(Register::U8(Register8::H)),
-            5 => Ok(Register::U8(Register8::L)),
-            6 => Ok(Register::U16(Register16::HL)),
-            7 => Ok(Register::U8(Register8::A)),
-            _ => bail!("Unknown Register ID: {}", trip),
+    /// fetch a word, logic determined by the LoadOperand
+    /// i.e. a register16 operand will fetch a value from registers, 
+    /// wheras an immediate16 operand will fetch a value from the PC
+    /// NOTE: Only Reg16 and Immediate16 operands are allowed, all others will fail
+    fn fetch_word_from_operand(&mut self, operand: LoadOperand) -> Result<u16> {
+        match operand {
+            LoadOperand::Reg16(reg) => Ok(self.registers.fetch(reg)),
+            LoadOperand::Immediate16 => {
+                // read lo and hi bytes from pc then read from the address
+                let pc = self.registers.fetch(register!(PC));
+
+                let lo = self.mem.read_byte(Address(pc))? as u16;
+                let hi = self.mem.read_byte(Address(pc + 1))? as u16;
+                self.registers.write(register!(PC), pc + 2);
+
+                Ok((hi << 8) | lo)
+            }
+
+            _ => Err(anyhow!(CpuError::FetchError)
+                .context(format!("Invalid operand for fetching u16 {:#?}", operand))),
         }
+    }
+
+    /// fetch a byte, logic determined by the LoadOperand
+    /// i.e. an immediate16 operand will fetch a value from memory, 
+    /// wheras an immediate8 operand will fetch a value from the PC
+    fn fetch_byte_from_operand(&mut self, operand: LoadOperand) -> Result<u8> {
+        match operand {
+            LoadOperand::Reg8(reg) => Ok(self.registers.fetch(reg)),
+
+            LoadOperand::Reg16(_) => Err(anyhow!(CpuError::FetchError)
+                .context("16 bit registers should be converted to LoadOperand::Address")),
+
+            LoadOperand::Address(addr) => self.mem.read_byte(addr),
+
+            LoadOperand::Immediate8 => {
+                // read the byte from the PC
+                let pc = self.registers.fetch(register!(PC));
+                let byte = self.mem.read_byte(Address(pc))?;
+                self.registers.write(register!(PC), pc + 1);
+                Ok(byte)
+            }
+
+            LoadOperand::Immediate16 => {
+                // read lo and hi bytes from pc then read from the address
+                let pc = self.registers.fetch(register!(PC));
+
+                let lo = self.mem.read_byte(Address(pc))? as u16;
+                let hi = self.mem.read_byte(Address(pc + 1))? as u16;
+                self.registers.write(register!(PC), pc + 2);
+
+                self.mem.read_byte(Address((hi << 8) | lo))
+            }
+        }
+    }
+    
+    fn fetch_and_execute(&mut self, instr: Instruction) -> anyhow::Result<()> {
+        match instr.instruction {
+            // based on the destination, we should know exactly what kind of value it is expecting 
+            // and then fetch that value
+            InstructionType::Load { src, dest, .. } => {
+                match dest {
+                    LoadOperand::Reg8(reg) => {
+                        // fetch the byte from the source and write it to the register
+                        let byte = self.fetch_byte_from_operand(src)?;
+                        self.registers.write(reg, byte);
+                    }
+
+                    LoadOperand::Address(addr) => {
+                        let byte = self.fetch_byte_from_operand(src)?;
+                        self.mem.write_byte(addr, byte)?;
+                    }
+
+                    LoadOperand::Reg16(reg) => {
+                        let word = self.fetch_word_from_operand(src)?;
+                        self.registers.write(reg, word);
+                    }
+                    _ => bail!(CpuError::UnsupportedInstruction(instr))                  
+                }
+            }
+            _ => unimplemented!()
+        }
+
+        Ok(())
     }
 
     /// Modular Decoder function, first we determine what kind of instruction
     /// and then we pass the opcode to a more specific decoder that generates the
     /// instruction
-    fn decode(&mut self) -> anyhow::Result<()> {
+    fn decode(&mut self) -> anyhow::Result<Instruction> {
         let pc = self.registers.fetch(Register16::PC);
         let opcode = self.mem.read_byte(Address(pc))?;
         self.registers.write(Register16::SP, pc + 1);
@@ -135,41 +206,68 @@ impl Cpu {
             | 0x0E | 0x1E | 0x2E | 0x3E 
             // 16 bit load
             | 0x01 | 0x11 | 0x21 | 0x31 
-            | 0x08 | 0xF8 | 0xF9  => todo!(), // some decode function,
+            | 0x08 | 0xF8 | 0xF9  => self.decode_load(opcode), // some decode function,
             _ => unimplemented!(),
         }
     }
 
      ///  Load instruction decoder
-    fn decode_load(&self, opcode: u8) {
+    fn decode_load(&self, opcode: u8) -> anyhow::Result<Instruction> {
         // isolate important opcode patterns
         let high_bits = opcode & 0xC0; // 0xC0 = 0b11000000
         let mid_bits = opcode & 0x38; // 0x38 = 0b00111000
         let last_bits = opcode & 0x07; // 0x07 = 0b00000111
 
-         match (high_bits, mid_bits, last_bits) {
-            // 0b01xxxyyy
-            // LD r, r
-            (0x40, _, _) => {
-                
+        let (cycles, instruction) = match (high_bits, mid_bits, last_bits) {
+            // LD r, (HL)
+            // 0b01 xxx 110
+            (0x40, _, 0x06) => {
+                let cycles = 2;
+                let dest = LoadOperand::Reg8(decode_bit_triple_reg8(mid_bits)?);               
+                let src = LoadOperand::Address(Address(self.registers.fetch(register!(HL))));
+                (cycles, InstructionType::Load { src, dest, followup: None })
             }
 
-            // 0b01xxx110
-            // LD r, (HL)
-            (0x40, _, 0x06) => {},
+            // LD (HL), r
+            // 0b01 110 xxx
+            (0x40, 0x06, _) => {
+                let cycles = 2;
+                let dest = LoadOperand::Address(Address(self.registers.fetch(register!(HL))));
+                let src = LoadOperand::Reg8(decode_bit_triple_reg8(last_bits)?);
+                (cycles, InstructionType::Load { src , dest , followup: None })
+            }
 
-            // 0b00xxx110
+            // LD r, r
+            // 0b01 xxx yyy
+            (0x40, _, _) => {
+                let cycles = 1;
+                let dest = LoadOperand::Reg8(decode_bit_triple_reg8(mid_bits)?);               
+                let src = LoadOperand::Reg8(decode_bit_triple_reg8(last_bits)?);
+                (cycles, InstructionType::Load { src, dest, followup: None })
+            }
+
             // LD, r, d8
-            (0x00, _, 0x06) => {},
+            // 0b00 xxx 110
+            (0x00, _, 0x06) => {
+                let cycles = 2;
+                let dest = LoadOperand::Reg8(decode_bit_triple_reg8(mid_bits)?);
+                let src = LoadOperand::Immediate8;
+                (cycles, InstructionType::Load { src, dest, followup: None })
+            },
+
 
             _ => unimplemented!()
-         }
+         };
+
+        Ok(Instruction { instruction, cycles})
     }
 
     /// Move 1 step forward in execution
     // Read, Fetch, Execute
-    fn step(&mut self) {
-        todo!()
+    fn step(&mut self) -> Result<()> {
+        let instr = self.decode()?;
+        self.fetch_and_execute(instr)?;
+        Ok(())
     }
 }
 
@@ -234,6 +332,166 @@ mod test {
 
         cpu.registers.write(Register8::B, cpu.mem.read_byte(Address(0x100))?);
         assert_eq!(cpu.registers.fetch(Register8::B), 0x69);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_decode_ld_r_r() -> anyhow::Result<()> {
+        let cpu = Cpu::default();
+
+        let instr = cpu.decode_load(0x40)?;
+
+        assert_eq!(
+            instr,
+            Instruction { 
+                instruction: InstructionType::Load { 
+                    src: LoadOperand::Reg8(register!(B)), 
+                    dest: LoadOperand::Reg8(register!(B)), 
+                    followup: None  }, 
+                cycles: 1
+            }
+        );
+
+        Ok(())
+    }        
+
+    
+    #[test]
+    fn test_decode_ld_r_hl() -> anyhow::Result<()> {
+        let cpu = Cpu::default();
+
+        let instr = cpu.decode_load(0x46)?;
+
+        assert_eq!(
+            instr,
+            Instruction { 
+                instruction: InstructionType::Load { 
+                    src: LoadOperand::Address(Address(cpu.registers.fetch(register!(HL)))), 
+                    dest: LoadOperand::Reg8(register!(B)), 
+                    followup: None  }, 
+                cycles: 2
+            }
+        );
+        
+        Ok(())
+    }
+
+    
+    #[test]
+    fn test_decode_ld_r_d8() -> anyhow::Result<()> {
+        let mut cpu = Cpu::default();
+        cpu.registers.write(register!(PC), 0x101);
+
+        cpu.mem.write_byte(Address(0x101), 0x69)?;
+
+        // LD B, d8
+        let instr = cpu.decode_load(0x06)?;
+
+        assert_eq!(
+            instr,
+            Instruction { 
+                instruction: InstructionType::Load { 
+                    src: LoadOperand::Immediate8, 
+                    dest: LoadOperand::Reg8(register!(B)), 
+                    followup: None  }, 
+                cycles: 2
+            }
+        );
+
+        assert_eq!(0x69, cpu.fetch_byte_from_operand(LoadOperand::Immediate8)?);
+        assert_eq!(cpu.registers.fetch(register!(PC)), 0x102);
+
+        Ok(())
+    }        
+
+
+    #[test]
+    fn test_fetch_byte_loadoperand_reg8() -> anyhow::Result<()> {
+        let mut cpu = Cpu::default();
+        cpu.registers.write(register!(B), 0xAB);
+
+        let byte = cpu.fetch_byte_from_operand(LoadOperand::Reg8(Register8::B))?;
+
+        assert_eq!(byte, 0xAB);
+        Ok(())
+    }
+
+    
+    #[test]
+    fn test_fetch_byte_loadoperand_reg16() -> anyhow::Result<()> {
+        let mut cpu = Cpu::default();
+        cpu.registers.write(register!(BC), 0xABCD);
+        cpu.mem.write_byte(Address(0xABCD), 0xFE)?;
+
+        let byte = cpu.fetch_byte_from_operand(LoadOperand::Address(Address(cpu.registers.fetch(register!(BC)))))?;
+        assert_eq!(byte, 0xFE);
+
+        Ok(())
+    }
+
+    
+    #[test]
+    fn test_fetch_byte_loadoperand_im8() -> anyhow::Result<()> {
+        let mut cpu = Cpu::default();
+        cpu.registers.write(register!(PC), 0x100);
+
+        cpu.mem.write_byte(Address(0x100), 0x69)?;
+
+        let byte = cpu.fetch_byte_from_operand(LoadOperand::Immediate8)?;
+
+        assert_eq!(byte, 0x69);
+        assert_eq!(cpu.registers.fetch(register!(PC)), 0x101);
+
+        Ok(())
+    }
+
+    
+    #[test]
+    fn test_fetch_byte_loadoperand_im16() -> anyhow::Result<()> {
+        let mut cpu = Cpu::default();
+        cpu.registers.write(register!(PC), 0x100);
+
+        cpu.mem.write_byte(Address(0x100), 0x69)?;
+        cpu.mem.write_byte(Address(0x101), 0x42)?;
+        cpu.mem.write_byte(Address(0x4269), 0xBC)?;
+
+        let byte = cpu.fetch_byte_from_operand(LoadOperand::Immediate16)?;
+
+        assert_eq!(byte, 0xBC);
+        assert_eq!(cpu.registers.fetch(register!(PC)), 0x102);
+
+
+        Ok(())
+    }
+
+    
+    #[test]
+    fn test_fetch_word_loadoperand_reg16() -> anyhow::Result<()> {
+        let mut cpu = Cpu::default();
+        cpu.registers.write(register!(BC), 0x1000);
+
+        let word = cpu.fetch_word_from_operand(LoadOperand::Reg16(register!(BC)))?;
+
+        assert_eq!(word, 0x1000);
+
+        Ok(())
+    }
+
+    
+    #[test]
+    fn test_fetch_word_loadoperand_im16() -> anyhow::Result<()> {
+        let mut cpu = Cpu::default();
+        cpu.registers.write(register!(PC), 0x100);
+
+        cpu.mem.write_byte(Address(0x100), 0x69)?;
+        cpu.mem.write_byte(Address(0x101), 0x42)?;
+
+        let word = cpu.fetch_word_from_operand(LoadOperand::Immediate16)?;
+
+        assert_eq!(word, 0x4269);
+        assert_eq!(cpu.registers.fetch(register!(PC)), 0x102);
+
 
         Ok(())
     }

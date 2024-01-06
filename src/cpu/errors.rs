@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use super::Instruction;
+
 #[derive(Error, Debug)]
 pub enum WriteError {
     #[error("Memory Overflow while writing to buffer")]
@@ -13,7 +15,19 @@ pub enum ReadError {
 }
 
 #[derive(Error, Debug)]
+pub enum DecodeError {
+    #[error(
+        "Invalid RegisterID recieved, unable to decode bit triple : 0b{:08b}",
+        0
+    )]
+    RegisterDecodeError(u8),
+}
+
+#[derive(Error, Debug)]
 pub enum CpuError {
-    #[error("Invalid RegisterID recieved")]
-    InvalidRegisterID,
+    #[error("Instruction encounted that is not yet supported: {:#?}", 0)]
+    UnsupportedInstruction(Instruction),
+
+    #[error("Failed to fetch data")]
+    FetchError,
 }
