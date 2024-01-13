@@ -297,7 +297,6 @@ impl Cpu {
             (0, _, 3, _, 1) => Ok(Instruction::dec(Operand::from_rp_table(p)?)),
 
             // 8 bit INC and DEC
-            // TODO: Distinguish between 8bit inc and 16bit inc???
             (0, _, 4, _, _) => Ok(Instruction::inc(Operand::from_r_table(y)?)),
             // 8 bit DEC
             (0, _, 5, _, _) => Ok(Instruction::dec(Operand::from_r_table(y)?)),
@@ -644,6 +643,20 @@ mod tests {
         Ok(())
     }
 
+    
+    #[test]
+    fn test_fetch_byte_loadoperand_addr() -> anyhow::Result<()> {
+        let mut cpu = Cpu::default();
+        cpu.registers.write(register!(HL), 0x100);
+
+        cpu.mem.write_byte(Address(0x100), 0x69)?;
+
+        let byte = cpu.fetch_byte_from_operand(Operand::Address(register!(HL)))?;
+
+        assert_eq!(byte, 0x69);
+
+        Ok(())
+    }
     
     #[test]
     fn test_fetch_word_loadoperand_im16() -> anyhow::Result<()> {
