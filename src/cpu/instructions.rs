@@ -9,7 +9,8 @@ const R_TABLE: [Operand; 8] = [
     Operand::Reg8(Register8::E),
     Operand::Reg8(Register8::H),
     Operand::Reg8(Register8::L),
-    Operand::Reg16(Register16::HL),
+    // maybe support Address(Register16)?
+    Operand::Address(Register16::HL),
     Operand::Reg8(Register8::A),
 ];
 
@@ -166,7 +167,7 @@ pub enum Operand {
 
     /// If a register is to be read as an address, it should ALWAYS
     /// be converted into an Address, to do otherwise is a mistake
-    // Address(Address),
+    Address(Register16),
 
     // 8 bit Immediate Data
     Immediate8,

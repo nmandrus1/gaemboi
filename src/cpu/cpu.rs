@@ -142,8 +142,8 @@ impl Cpu {
 
             Operand::Reg16(reg) => Ok(self.mem.read_byte(self.registers.as_addr(reg))?),
 
-            // operand::address is depcrecated for now
-            // Operand::Address(addr) => self.mem.read_byte(addr),
+            // operand::address is no longer deprecated for now lol
+            Operand::Address(reg) => self.mem.read_byte(self.registers.as_addr(reg)),
 
             Operand::Immediate8 => {
                 // read the byte from the PC
@@ -168,31 +168,21 @@ impl Cpu {
     
     fn fetch_and_execute(&mut self, instr: Instruction) -> anyhow::Result<()> {
         match instr.itype() {
-            // based on the destination, we should know exactly what kind of value it is expecting 
-            // and then fetch that value
-            InstructionType::Load { src, dest, .. } => {
-                match (dest, src) {
-                    (Operand::Reg8(reg), _) => {
-                        // fetch the byte from the source and write it to the register
-                        let byte = self.fetch_byte_from_operand(src)?;
-                        self.registers.write(reg, byte);
-                    }
+            // Execute Load instruction
+            InstructionType::Load { src, dest, followup } => {
+                self.load(src, dest)?;
 
-                    // deprecated for now
-                    // (Operand::Address(addr), _) => {
-                    //     let byte = self.fetch_byte_from_operand(src)?;
-                    //     self.mem.write_byte(addr, byte)?;
-                    // }
-
-                    (Operand::Reg16(dest), Operand::Reg8(_)) 
-                    | (Operand::Reg16(dest), Operand::Immediate8) => {
-                        
-                        let addr = self.registers.as_addr(dest);
-                        let byte = self.fetch_byte_from_operand(src)?;
-                        self.mem.write_byte(addr, byte)?;
-                    }
-
-                    _ => bail!(CpuError::UnsupportedInstruction(instr))                  
+                // this can 100% be shortened somehow
+                match followup {
+                    Some(FollowUp::Inc) => match src {
+                        Operand::Reg16(r16) => self.registers.inc(r16),
+                        _ => bail!("Attempted FollowUp::Inc on non 16bit register"),
+                    },
+                    Some(FollowUp::Dec) => match src {
+                        Operand::Reg16(r16) => self.registers.dec(r16),
+                        _ => bail!("Attempted FollowUp::Dec on non 16bit register"),
+                    },
+                    None => {},
                 }
             }
 
@@ -200,6 +190,34 @@ impl Cpu {
 
             _ => bail!(anyhow!(CpuError::UnsupportedInstruction(instr))
                 .context("Stopping Execution at preprogrammed HALT"))
+        }
+
+        Ok(())
+    }
+
+    fn load(&mut self, src: Operand, dest: Operand) -> Result<()> {
+                match (dest, src) {
+            (Operand::Reg8(reg), _) => {
+                // fetch the byte from the source and write it to the register
+                let byte = self.fetch_byte_from_operand(src)?;
+                self.registers.write(reg, byte);
+            }
+
+            // deprecated for now
+            // (Operand::Address(addr), _) => {
+            //     let byte = self.fetch_byte_from_operand(src)?;
+            //     self.mem.write_byte(addr, byte)?;
+            // }
+
+            (Operand::Reg16(dest), Operand::Reg8(_)) 
+            | (Operand::Reg16(dest), Operand::Immediate8) => {
+                
+                let addr = self.registers.as_addr(dest);
+                let byte = self.fetch_byte_from_operand(src)?;
+                self.mem.write_byte(addr, byte)?;
+            }
+
+            _ => bail!(CpuError::InvalidLoadOperands(src, dest))                  
         }
 
         Ok(())
@@ -278,6 +296,19 @@ impl Cpu {
             // 16 bit DEC
             (0, _, 3, _, 1) => Ok(Instruction::dec(Operand::from_rp_table(p)?)),
 
+            // 8 bit INC and DEC
+            // TODO: Distinguish between 8bit inc and 16bit inc???
+            (0, _, 4, _, _) => Ok(Instruction::inc(Operand::from_r_table(y)?)),
+            // 8 bit DEC
+            (0, _, 5, _, _) => Ok(Instruction::dec(Operand::from_r_table(y)?)),
+
+            // LD, r, d8
+            (0, _, 6, _, _) => {
+                let dest = Operand::from_r_table(y)?;
+                let src = Operand::Immediate8;
+                Ok(Instruction::load(src, dest, None))
+            },
+
             // special instruction
             (1, 6, 6, _, _ ) => Ok(Instruction::halt()),
 
@@ -289,13 +320,6 @@ impl Cpu {
                 if src == dest { return Ok(Instruction::nop())}
                 Ok(Instruction::load(src, dest, None))
             }
-
-            // LD, r, d8
-            (0, _, 6, _, _) => {
-                let dest = Operand::from_r_table(y)?;
-                let src = Operand::Immediate8;
-                Ok(Instruction::load(src, dest, None))
-            },
 
             (0, 0, 0, _, _) => Ok(Instruction::nop()),
 
@@ -332,6 +356,8 @@ impl Cpu {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
+
     use anyhow::Result;
 
     // all unit tests belong here
@@ -425,7 +451,7 @@ mod tests {
 
         assert_eq!(
             instr,
-            Instruction::load(Operand::Reg8(register!(B)), Operand::Reg16(register!(HL)), None)
+            Instruction::load(Operand::Reg8(register!(B)), Operand::Address(register!(HL)), None)
         );
         
         Ok(())
@@ -439,7 +465,7 @@ mod tests {
 
         assert_eq!(
             instr,
-            Instruction::load(Operand::Reg16(register!(HL)), Operand::Reg8(register!(B)), None)
+            Instruction::load(Operand::Address(register!(HL)), Operand::Reg8(register!(B)), None)
         );
         
         Ok(())
@@ -510,6 +536,39 @@ mod tests {
 
         assert_eq!(instr, Instruction::inc(Operand::Reg16(Register16::BC)));
         
+        Ok(())
+    }
+
+    
+    #[test]
+    fn test_decode_8bit_inc() -> anyhow::Result<()> {
+        let cpu = Cpu::default();
+
+        // Decode the INC B instruction
+        let instr = cpu.decode(0x04)?;
+
+        assert_eq!(instr, Instruction::inc(Operand::Reg8(Register8::B)));
+        Ok(())
+    }
+
+    #[test]
+    fn test_decode_8bit_dec() -> anyhow::Result<()> {
+        let cpu = Cpu::default();
+
+        // Decode the DEC B instruction
+        let instr = cpu.decode(0x05)?;
+
+        assert_eq!(instr, Instruction::dec(Operand::Reg8(Register8::B)));
+        Ok(())
+    }
+
+    #[test]
+    fn test_decode_inc_addr() -> anyhow::Result<()> {
+        let cpu = Cpu::default();
+
+        let instr = cpu.decode(0x34)?;
+
+        assert_eq!(instr, Instruction::inc(Operand::Address(Register16::HL)));
         Ok(())
     }
 

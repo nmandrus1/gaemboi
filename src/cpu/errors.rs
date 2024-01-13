@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use super::Instruction;
+use super::{Instruction, Operand};
 
 #[derive(Error, Debug)]
 pub enum WriteError {
@@ -33,6 +33,9 @@ pub enum DecodeError {
 pub enum CpuError {
     #[error("Instruction encounted that is not yet supported: {0:#?}")]
     UnsupportedInstruction(Instruction),
+
+    #[error("Pair of invalid load operands src: {0:?} \t dest: {1:?}")]
+    InvalidLoadOperands(Operand, Operand),
 
     #[error("Failed to fetch data")]
     FetchError,
