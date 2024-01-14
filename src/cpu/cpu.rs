@@ -186,6 +186,10 @@ impl Cpu {
                 }
             }
 
+            InstructionType::Inc(op) => {
+                
+            }
+
             InstructionType::Nop => {},
 
             _ => bail!(anyhow!(CpuError::UnsupportedInstruction(instr))
@@ -217,6 +221,11 @@ impl Cpu {
                 self.mem.write_byte(addr, byte)?;
             }
 
+            (Operand::Reg16(dest), Operand::Immediate16) => {
+                let word = self.fetch_word_from_operand(src)?;
+                self.registers.write(dest, word);
+            }
+
             _ => bail!(CpuError::InvalidLoadOperands(src, dest))                  
         }
 
@@ -235,6 +244,13 @@ impl Cpu {
         let z = opcode & 0x07; // 0x07 = 0b00000111
 
         match (x, y, z, p, q) {
+            // 16 bit load
+            (0, _, 1, _, 0) => {
+                let dest = Operand::from_rp_table(p)?;
+                let src = Operand::Immediate16;
+                Ok(Instruction::load(src, dest, None))
+            }
+
             // LD (BC), A
             (0, _, 2, 0, 0) => {
                 let dest = Operand::Reg16(register!(BC));
@@ -675,4 +691,41 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_sequential_loads() -> anyhow::Result<()> {
+        let mut cpu = Cpu::default();
+
+        cpu.registers.write(register!(PC), 0x100);
+        cpu.registers.write(register!(B), 0x69);
+
+        // LD C, B
+        cpu.mem.write_byte(0x100.into(), 0x48)?;
+        // LD D, C
+        cpu.mem.write_byte(0x101.into(), 0x51)?;
+        // LD E, D
+        cpu.mem.write_byte(0x102.into(), 0x5A)?;
+
+        // LD HL, 0x6942
+        cpu.mem.write_byte(0x103.into(), 0x21)?;
+        cpu.mem.write_byte(0x104.into(), 0x42)?;
+        cpu.mem.write_byte(0x105.into(), 0x69)?;
+
+        cpu.step()?;
+        assert_eq!(cpu.registers.fetch(register!(C)), 0x69);
+        assert_eq!(cpu.registers.fetch(register!(PC)), 0x101);
+
+        cpu.step()?;
+        assert_eq!(cpu.registers.fetch(register!(D)), 0x69);
+        assert_eq!(cpu.registers.fetch(register!(PC)), 0x102);
+
+        cpu.step()?;
+        assert_eq!(cpu.registers.fetch(register!(E)), 0x69);
+        assert_eq!(cpu.registers.fetch(register!(PC)), 0x103);
+
+        cpu.step()?;
+        assert_eq!(cpu.registers.fetch(register!(HL)), 0x6942);
+        assert_eq!(cpu.registers.fetch(register!(PC)), 0x106);
+
+        Ok(())
+    }
 }
